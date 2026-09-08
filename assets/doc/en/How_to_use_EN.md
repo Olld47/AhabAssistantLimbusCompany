@@ -148,6 +148,26 @@ In the Settings screen, turn on the "Use Emulator" option, and it is recommended
 - Emulators may cause the script to run slowly, so it is recommended to use a higher configuration computer and give the
   emulator enough memory and CPU resources
 
+### macOS users
+
+- On macOS, use the **emulator background mode**: Settings → Emulator settings → enable "Use Emulator", and select
+  **"Other emulator" (10)** as the type.
+- The MuMu (0) and BlueStacks 5 (1) drivers depend on Windows (registry / MuMuManager.exe) and are unavailable on
+  macOS.
+- Fill in the emulator's ADB address as host/port: usually `127.0.0.1:16384` on macOS (MuMu instances increment by +32)
+  or `127.0.0.1:5555`; when unsure, run `adb devices` on the machine.
+- Screenshots and input go through ADB (screencap / minitouch), same as on Windows. Start the emulator manually and keep
+  its ADB enabled; the script will not launch the emulator process itself.
+
+#### PlayCover (Apple Silicon, no Android emulator needed)
+
+- Install the iOS build of Limbus Company in PlayCover and enable **MaaTools** (built-in: Bypass settings; standalone:
+  see [viatearz/MaaTools](https://github.com/viatearz/MaaTools)). The game window title will show `[localhost:port]`.
+- AALC Settings → Emulator settings: enable "Use Emulator", pick **"PlayCover (MaaTools)" (20)**, host `127.0.0.1`,
+  port = the one in the window title (default `1717`).
+- Screenshots and touches go through the MaaTools TCP protocol straight to the game window (native pixels), same as on
+  Windows/emulators. Start the game in PlayCover manually; AALC will not launch it.
+
 ### Third-Party Script Support
 
 ## Command Line Launch

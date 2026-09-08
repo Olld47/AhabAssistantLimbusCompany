@@ -1,8 +1,12 @@
 from datetime import datetime, timedelta
 from time import monotonic
 
-import win32con
-import win32gui
+try:
+    import win32con  # Windows-only
+    import win32gui
+except ImportError:
+    win32con = None  # type: ignore[assignment]
+    win32gui = None  # type: ignore[assignment]
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (

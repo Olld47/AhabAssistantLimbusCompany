@@ -194,6 +194,7 @@ class SettingInterface(QWidget):
                 QT_TRANSLATE_NOOP("ComboBoxSettingCard", "MuMu模拟器(推荐)"): 0,
                 QT_TRANSLATE_NOOP("ComboBoxSettingCard", "BlueStacks 5"): 1,
                 QT_TRANSLATE_NOOP("ComboBoxSettingCard", "其他模拟器"): 10,
+                QT_TRANSLATE_NOOP("ComboBoxSettingCard", "PlayCover (MaaTools)"): 20,
             },
             parent=self.simulator_setting_group,
         )

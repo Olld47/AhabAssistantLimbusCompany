@@ -78,7 +78,13 @@
 
 因为技术力不足，还搞了GUI和使用第三方OCR，所以导致文件比较大
 
-**注意**：Release基于x86_64架构，Windows系统。对于Arm架构（如苹果M系列芯片，树莓派等），RISCV架构和Mac系统，Linux系统暂不支持。如果需要在非支持的平台上运行AALC请参考**源码运行**和**构建指南**章节进行操作。也欢迎作为开发者提交PR进行多平台适配。未来根据用户需求也许会添加多平台的Release版本支持。
+**注意**：Release基于x86_64架构，Windows系统。对于Arm架构（如苹果M系列芯片，树莓派等），RISCV架构和Mac系统，Linux系统暂无Release。如果需要在非支持的平台上运行AALC请参考**源码运行**和**构建指南**章节进行操作，也欢迎作为开发者提交PR进行多平台适配。未来根据用户需求也许会添加多平台的Release版本支持。
+
+> macOS（Apple Silicon/Intel）：自源码运行已可用（GUI 正常）。依赖 Windows API 的能力在 macOS 上不可用：后台点击/截图（win32）、窗口句柄管理、HDR 检测、计划任务、Toast 通知与管理员提权。安装依赖时 `uv sync` 或 `pip install -r requirements.txt` 会自动跳过 Windows 专用包（pywin32/pyuac/windows-toasts）。首次运行 GUI 时请在 系统设置 → 隐私与安全性 中为终端授予屏幕录制与辅助功能权限，前台模式（pyautogui）的输入与截图才可生效。
+>
+> **macOS 上运行自动化：使用模拟器后台模式**。在 设置 → 模拟器设置 中开启「使用模拟器」，类型选择「其他模拟器」(10)，并按模拟器的实际 ADB 地址填写主机/端口（本机一般为 `127.0.0.1:16384`（MuMu 多开按实例 +32 递增）或 `127.0.0.1:5555`，可用 `adb devices` 确认）。截图与输入均走 ADB（screencap / minitouch），与 Windows 行为一致。MuMu(0)/BlueStacks 5(1) 为 Windows 桌面驱动，macOS 上不可用，请选择「其他」。模拟器需手动启动并保持 ADB 开启，脚本不会自动拉起模拟器进程。
+>
+> 也可走 **PlayCover** 直连 iOS 版游戏：在 PlayCover 中启用 MaaTools（游戏窗口标题显示 `[localhost:1717]`），AALC 类型选「PlayCover (MaaTools)」(20)、主机 `127.0.0.1`、端口 `1717`，截图与触摸经 MaaTools TCP 协议直接作用于游戏窗口，无需 Android 模拟器。
 
 ---
 

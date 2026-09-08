@@ -86,7 +86,9 @@ Click [Releases](https://github.com/KIYI671/AhabAssistantLimbusCompany/releases)
 Because of the lack of technical power, I also engaged in GUI and used third-party OCR, so the file size is relatively
 large
 
-**Note**: The Release is based on the x86_64 architecture for Windows systems. It currently does not support Arm architecture (such as Apple M-series chips, Raspberry Pi, etc.), RISCV architecture, Mac systems, or Linux systems. If you need to run AALC on unsupported platforms, please refer to the **Run the source code** and **Build guide**. Contributions as a developer to submit PRs for multi-platform adaptation are also welcome. In the future, multi-platform Release version support may be added based on user demand.
+**Note**: The Release is based on the x86_64 architecture for Windows systems. There is currently no Release for Arm architecture (such as Apple M-series chips, Raspberry Pi, etc.), RISCV architecture, Mac systems, or Linux systems. If you need to run AALC on unsupported platforms, please refer to the **Run the source code** and **Build guide** chapters. Contributions as a developer to submit PRs for multi-platform adaptation are also welcome. In the future, multi-platform Release support may be added based on user demand.
+
+> macOS (Apple Silicon/Intel): running from source now works (GUI boots). Features that rely on Windows APIs are unavailable on macOS: background click/screenshot (win32), window-handle management, HDR detection, scheduled tasks, Toast notifications, and admin elevation. `uv sync` or `pip install -r requirements.txt` automatically skips Windows-only packages (pywin32/pyuac/windows-toasts). On first GUI run, grant the terminal Screen Recording and Accessibility permissions in System Settings → Privacy & Security so foreground-mode (pyautogui) input and screenshots work.
 
 ---
 

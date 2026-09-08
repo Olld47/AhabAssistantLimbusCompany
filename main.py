@@ -13,24 +13,25 @@ _ORIG_SSLKEYLOGFILE = os.environ.pop("SSLKEYLOGFILE", None)
 os.chdir(
     os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
 )
-# 解决 Windows DPI 缩放问题
-from ctypes import c_void_p, windll
+# 解决 Windows DPI 缩放问题（仅 Windows；macOS 的 HiDPI 由系统与 Qt 自动处理）
+if sys.platform == "win32":
+    from ctypes import c_void_p, windll
 
-try:
-    # 1. 尝试 Win10 1703+ 的最强方案 (Per Monitor V2)
-    # -4 对应 DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
-    windll.user32.SetProcessDpiAwarenessContext(c_void_p(-4))
-except (AttributeError, OSError):
     try:
-        # 2. 尝试 Win8.1+ 的方案 (Per Monitor)
-        # 2 对应 PROCESS_PER_MONITOR_DPI_AWARE
-        windll.shcore.SetProcessDpiAwareness(2)
+        # 1. 尝试 Win10 1703+ 的最强方案 (Per Monitor V2)
+        # -4 对应 DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+        windll.user32.SetProcessDpiAwarenessContext(c_void_p(-4))
     except (AttributeError, OSError):
         try:
-            # 3. 最后的兜底方案 (Win7/Vista)
-            windll.user32.SetProcessDPIAware()
-        except Exception:
-            pass
+            # 2. 尝试 Win8.1+ 的方案 (Per Monitor)
+            # 2 对应 PROCESS_PER_MONITOR_DPI_AWARE
+            windll.shcore.SetProcessDpiAwareness(2)
+        except (AttributeError, OSError):
+            try:
+                # 3. 最后的兜底方案 (Win7/Vista)
+                windll.user32.SetProcessDPIAware()
+            except Exception:
+                pass
 
 # 先配好日志（给 "AALC" logger 挂 handler），再 import 会在 import 期就打日志的 app/config 模块，
 # 否则那些启动日志会丢。
@@ -39,19 +40,20 @@ from module.logger.my_log import Logger
 
 Logger()
 
-# 获取管理员权限
-import pyuac
-
 from app.language_manager import LanguageManager
 from app.my_app import MainWindow
 from module.config import cfg
 
-if not pyuac.isUserAdmin():
-    try:
-        pyuac.runAsAdmin(False)
-        sys.exit(0)
-    except Exception:
-        sys.exit(1)
+# 获取管理员权限（仅 Windows；macOS 桌面应用通常不需要提权，pyuac 依赖 pywin32 也无法在 mac 导入）
+if sys.platform == "win32":
+    import pyuac
+
+    if not pyuac.isUserAdmin():
+        try:
+            pyuac.runAsAdmin(False)
+            sys.exit(0)
+        except Exception:
+            sys.exit(1)
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtWidgets import QApplication

@@ -1,9 +1,18 @@
 from time import sleep
 from typing import TYPE_CHECKING, overload
 
-import win32api
-import win32con
-import win32gui
+try:
+    import win32api
+    import win32con
+    import win32gui
+
+    _HAS_WIN32 = True
+except ImportError:
+    # macOS/Linux：窗口句柄 API 不可用；模块仍可导入（GUI 依赖它），相关方法仅在调用时失败
+    win32api = None  # type: ignore[assignment]
+    win32con = None  # type: ignore[assignment]
+    win32gui = None  # type: ignore[assignment]
+    _HAS_WIN32 = False
 
 from app import mediator
 from module.config import cfg
