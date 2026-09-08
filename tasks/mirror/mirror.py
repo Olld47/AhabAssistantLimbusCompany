@@ -505,6 +505,8 @@ class Mirror:
             if auto.take_screenshot() is None:
                 auto.mouse_to_blank()
                 continue
+            if auto.find_element("base/waiting_assets.png") or auto.find_element("base/waiting_2_assets.png"):
+                continue
             if (
                 not auto.find_element("mirror/claim_reward/complete_mirror_100%_assets.png")
                 and failed is None
