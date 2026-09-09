@@ -1575,16 +1575,30 @@ class Mirror:
             "mirror/road_in_mir/to_window_assets.png", threshold=0.75, take_screenshot=True
         ):
             # 每个 CLEAR 标记代表一层已通关，因此当前层数为标记数加一
-            self.floor = len(
-                auto.find_element(
-                    "mirror/road_in_mir/clear_floor.png",
+            clear_floors = auto.find_element(
+                "mirror/road_in_mir/clear_floor.png",
+                find_type="image_with_multiple_targets",
+                take_screenshot=True,
+                min_dist=80 * scale,
+            )
+            if clear_floors:
+                self.floor = len(clear_floors) + 1
+                log.debug(f"当前镜牢层数: {self.floor}")
+                self.mirror_map.refresh_floor(self.floor)
+            else:
+                # CLEAR 识别失败时回退到历史的未通关楼层模板。
+                not_passed_floors = auto.find_element(
+                    "mirror/road_in_mir/not_passed_floor.png",
                     find_type="image_with_multiple_targets",
                     take_screenshot=True,
                     min_dist=80 * scale,
                 )
-            ) + 1
-            log.debug(f"当前镜牢层数: {self.floor}")
-            self.mirror_map.refresh_floor(self.floor)
+                if not_passed_floors:
+                    self.floor = 5 - len(not_passed_floors)
+                    log.debug(f"当前镜牢层数: {self.floor}（使用未通关楼层兜底识别）")
+                    self.mirror_map.refresh_floor(self.floor)
+                else:
+                    log.info(f"未识别到当前镜牢楼层，保留当前楼层: {self.floor}")
         else:
             log.info("未识别到当前镜牢楼层")
         auto.mouse_click_blank()
