@@ -255,7 +255,7 @@ class Mirror:
                 break
 
             # 离开镜牢的设置页面
-            if to_window_position := auto.find_element("mirror/road_in_mir/to_window_assets.png"):
+            if to_window_position := auto.find_element("mirror/road_in_mir/to_window_assets.png", threshold=0.75):
                 auto.mouse_click(to_window_position[0] - 200 * cfg.set_win_size / 1440, to_window_position[1])
                 continue
 
@@ -504,6 +504,8 @@ class Mirror:
             # 自动截图
             if auto.take_screenshot() is None:
                 auto.mouse_to_blank()
+                continue
+            if auto.find_element("base/waiting_assets.png") or auto.find_element("base/waiting_2_assets.png"):
                 continue
             if (
                 not auto.find_element("mirror/claim_reward/complete_mirror_100%_assets.png")
@@ -1134,7 +1136,7 @@ class Mirror:
                 break
             if auto.click_element("mirror/road_in_mir/towindow&forfeit_confirm_assets.png"):
                 break
-            if auto.click_element("mirror/road_in_mir/to_window_assets.png"):
+            if auto.click_element("mirror/road_in_mir/to_window_assets.png", threshold=0.75):
                 continue
             if auto.click_element("mirror/road_in_mir/setting_assets.png"):
                 sleep(1)
