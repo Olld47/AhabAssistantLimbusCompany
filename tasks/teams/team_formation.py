@@ -282,6 +282,11 @@ def check_team():
 def load_team_code_in_game(team_code: str) -> bool:
     """在游戏中加载编队码
 
+    依赖 `input_text` 向游戏内输入框输入文本，而触屏设备（PlayCover/MaaTools，见
+    `module/automation/input_handlers/playcover_control.py`）没有键盘/文本指令，
+    该模式下本功能不可用，会返回 False，调用方按当前队伍配置继续（见
+    `assets/doc/zh/How_to_use.md` 的 PlayCover 已知缺口）。
+
     Args:
         team_code: 编队码字符串
 

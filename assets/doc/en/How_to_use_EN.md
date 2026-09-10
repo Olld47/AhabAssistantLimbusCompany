@@ -161,12 +161,19 @@ In the Settings screen, turn on the "Use Emulator" option, and it is recommended
 
 #### PlayCover (Apple Silicon, no Android emulator needed)
 
-- Install the iOS build of Limbus Company in PlayCover and enable **MaaTools** (built-in: Bypass settings; standalone:
-  see [viatearz/MaaTools](https://github.com/viatearz/MaaTools)). The game window title will show `[localhost:port]`.
+- Use the community fork [hguandl/PlayCover](https://github.com/hguandl/PlayCover) (version `3.1.0.maa.N` or later),
+  which bundles the PlayTools build that provides the MaaTools TCP service. Install the iOS build of Limbus Company
+  there, turn on **MaaTools** in that game's settings (the "Port:" field next to it defaults to `1717`), then start the
+  game — the game window title shows `[localhost:port]` once the service is ready.
 - AALC Settings → Emulator settings: enable "Use Emulator", pick **"PlayCover (MaaTools)" (20)**, host `127.0.0.1`,
-  port = the one in the window title (default `1717`).
+  port = the one in the window title (default `1717`, must match the "Port:" setting in PlayCover).
 - Screenshots and touches go through the MaaTools TCP protocol straight to the game window (native pixels), same as on
   Windows/emulators. Start the game in PlayCover manually; AALC will not launch it.
+- **Known gap**: the MaaTools protocol only provides touch (`TUCH`) and screenshot commands — there is no keyboard or
+  text command. Keyboard-dependent actions fall back to touches (battle start is handled), but **"Use team code" cannot
+  type into the in-game input box**: loading fails, AALC logs `编队码加载失败，继续使用当前队伍配置` and continues with the
+  current team configuration (the task is not interrupted). The feature is rarely used and has no fallback for now; set
+  up the team manually in game, or use the emulator background mode (ADB) described above.
 
 ### Third-Party Script Support
 

@@ -1,8 +1,11 @@
 """PlayCover (MaaTools) 设备控制。
 
-通过 PlayCover 内嵌/插件暴露的 MaaTools TCP 服务操作 iOS 版 Limbus Company。
+通过 PlayCover 内嵌暴露的 MaaTools TCP 服务操作 iOS 版 Limbus Company。
 
-协议参考 hguandl/PlayTools；
+协议实现见 hguandl/PlayTools 的 ``MaaTools`` 分支（随社区分支 hguandl/PlayCover
+分发，协议版本 4），可用命令：``SCRN``/``BGR\\x01`` 截图、``SIZE`` 尺寸、
+``RECT`` 窗口矩形、``BNDL`` 包名、``VERN`` 版本、``TUCH`` 触摸、``TERM`` 退出，
+没有键盘/文本指令；
 - 连接后客户端先发 4 字节魔数 ``MAA\\0``，服务端回 ``OKAY``；
 - 之后每条命令 = 2 字节大端长度 + 载荷；载荷前 4 字节为命令魔数；
 - 截图实际尺寸 = 游戏窗口像素（PlayCover 按设备型号/缩放渲染，可能带 2x
@@ -16,9 +19,9 @@
 - 截图使用 BGR 命令（vImage 路径，自上而下，无翻转歧义）：
   返回 u32 宽 + u32 高 + u32 长度 + BGR888 数据。
 
-MaaTools 服务默认端口 1717，由 PlayCover 侧 ``<BundleID>.maa.json``
-(``{"enabled":1,"port":1717}``) 或内嵌版设置开启；游戏窗口标题出现
-``[localhost:1717]`` 即代表服务已就绪。
+MaaTools 服务由 PlayCover 中该游戏设置里的 MaaTools 开关启用（PlayTools 的
+``PlaySettings.maaTools`` / ``maaToolsPort``，端口默认 1717，随应用设置保存）；
+服务就绪后游戏窗口标题会出现 ``[localhost:端口]``。
 """
 
 import random
@@ -418,7 +421,8 @@ class PlayCoverControl(AbstractInput):
         self._touch_up(*points[-1])
 
     def key_press(self, key: str):
-        log.warning("PlayCover (MaaTools) 协议不支持键盘事件，跳过按键: %s", key)
+        """MaaTools 协议没有键盘指令（见 hguandl/PlayTools 的 MaaTools 分支），按键无法送达，
+        需要键盘的操作请改用触摸兜底。"""
 
     def input_text(self, text: str):
         log.warning("PlayCover (MaaTools) 协议不支持文本输入，跳过: %s", text)
