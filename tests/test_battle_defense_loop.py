@@ -27,6 +27,7 @@ LEGEND = (1822, 175)
 ROUND_BUTTON = (1290, 850)  # 实测：点这里能开始回合
 WIN_LABEL = (1453, 827)  # 实测：OCR 到的 "Rate" 文字中心（按钮在其左侧 -163，1080 画布）
 DAMAGE_LABEL = (1453, 878)  # 实测：OCR 到的 "Damage" 文字中心
+SKILL_BAND = (900, 1060, 380, 1310)  # 技能条上点选技能的位置范围 (y1, y2, x1, x2)
 
 
 class LoopDetected(RuntimeError):
@@ -53,6 +54,17 @@ def _win_rate_click_point() -> tuple[float, float]:
     return WIN_RATE_CARD[0] + 50 * scale, WIN_RATE_CARD[1] - 50 * scale
 
 
+def _auto_select_point() -> tuple[float, float]:
+    """胜率面板上触发“自动选择”的点（battle.py: Rate 文字 +(50, -10) @1080 画布）。"""
+    scale = cfg.set_win_size / 1080
+    return WIN_LABEL[0] + 50 * scale, WIN_LABEL[1] - 10 * scale
+
+
+def _in_skill_band(x, y) -> bool:
+    y1, y2, x1, x2 = SKILL_BAND
+    return y1 < y < y2 and x1 < x < x2
+
+
 class FakeDevice:
     """模拟一台游戏设备：技能选择 -> 交战播片 -> 战斗结束。"""
 
@@ -68,11 +80,17 @@ class FakeDevice:
         mouse_click_rate: bool,
         start_button_works: bool = True,
         win_rate_card_visible: bool = True,
+        ocr_labels_available: bool = True,
+        language_gate_stuck: bool = False,
+        gear_right_visible: bool = True,
     ):
         self.clock = VirtualClock()
         self.keyboard_works = keyboard_works
         self.start_button_works = start_button_works
         self.win_rate_card_visible = win_rate_card_visible
+        self.ocr_labels_available = ocr_labels_available
+        self.language_gate_stuck = language_gate_stuck
+        self.gear_right_visible = gear_right_visible
         self.input_handler = FakeInputHandler(supports_keyboard=keyboard_works)
         self.supports_keyboard = keyboard_works
         self.model = "clam"
@@ -86,6 +104,10 @@ class FakeDevice:
         self.round_button_taps = 0
         self.win_rate_card_finds = 0
         self.win_rate_clicks = 0
+        # 开始按钮的可点前提：手动选过技能（守备/链接战）或点过胜率面板自动选择
+        self.skills_assigned = False
+        self.auto_selected = False
+        self.auto_select_clicks = 0
         self.start_battle = Battle(is_tool=True)
         self.start_battle.mouse_click_rate = mouse_click_rate
 
@@ -124,7 +146,7 @@ class FakeDevice:
             if target == "battle/gear_left.png":
                 return GEAR_LEFT
             if target == "battle/gear_right.png":
-                return GEAR_RIGHT
+                return GEAR_RIGHT if self.gear_right_visible else None
             if target == "battle/win_rate_card.png":
                 if not self.win_rate_card_visible:
                     return None
@@ -144,7 +166,7 @@ class FakeDevice:
 
     def find_language_text(self, zh_text, en_text, *args, **kwargs):
         # 面板文字只在技能选择界面存在；按钮位置由它们推算（见 Battle._click_round_start_button）
-        if self.phase != "selection":
+        if self.phase != "selection" or not self.ocr_labels_available or self.language_gate_stuck:
             return False
         if en_text == "rate":
             return WIN_LABEL
@@ -152,7 +174,15 @@ class FakeDevice:
             return DAMAGE_LABEL
         return False
 
-    def find_text_element(self, *args, **kwargs):
+    def find_text_element(self, target, *args, **kwargs):
+        # 语言无关取词：不查 current_language，中英都试
+        if self.phase != "selection" or not self.ocr_labels_available:
+            return False
+        if isinstance(target, list):
+            if "rate" in target or "胜率" in target:
+                return WIN_LABEL
+            if "damage" in target or "伤害" in target:
+                return DAMAGE_LABEL
         return False
 
     def click_element(self, target, *args, **kwargs):
@@ -169,14 +199,23 @@ class FakeDevice:
         self.clock.sleep(0.05)
         if self.phase != "selection":
             return True
-        if self._near(x, y, ROUND_BUTTON, 30):
+        if self._near(x, y, ROUND_BUTTON, 30) or self._near(x, y, GEAR_RIGHT, 30):
+            # 圆形开始按钮：没选技能时是灰的，点了也不开战（实机实测）
             self.round_button_taps += 1
-            if self.start_button_works:
+            if self.start_button_works and (self.skills_assigned or self.auto_selected):
                 self._start_round()
+        elif self._near(x, y, _auto_select_point(), 30):
+            # 点胜率面板 = 自动选择技能（自动战斗）
+            self.auto_select_clicks += 1
+            self.auto_selected = True
         elif self._near(x, y, _win_rate_click_point(), 25):
-            # 胜率自动选择：能开战但会顶掉手动守备
+            # 老兜底（胜率卡模板 + 齿轮）：同样是自动选择，会顶掉手动守备
             self.win_rate_clicks += 1
+            self.auto_selected = True
             self._start_round()
+        elif _in_skill_band(x, y):
+            # 守备/链接战在技能条上手动点选
+            self.skills_assigned = True
         return True
 
     def _start_round(self) -> None:
@@ -214,6 +253,9 @@ def run_fight(monkeypatch):
         mouse_click_rate: bool,
         start_button_works: bool = True,
         win_rate_card_visible: bool = True,
+        ocr_labels_available: bool = True,
+        language_gate_stuck: bool = False,
+        gear_right_visible: bool = True,
         defense_first_round: bool = True,
     ):
         device = FakeDevice(
@@ -221,6 +263,9 @@ def run_fight(monkeypatch):
             mouse_click_rate=mouse_click_rate,
             start_button_works=start_button_works,
             win_rate_card_visible=win_rate_card_visible,
+            ocr_labels_available=ocr_labels_available,
+            language_gate_stuck=language_gate_stuck,
+            gear_right_visible=gear_right_visible,
         )
         monkeypatch.setattr(battle_module, "auto", device)
         monkeypatch.setattr(battle_module, "sleep", device.clock.sleep)
@@ -255,11 +300,12 @@ def test_defense_uses_keyboard_without_mouse_mode(run_fight):
 
 
 def test_defense_starts_round_with_round_button_on_keyboardless_device(run_fight):
-    """键盘无效：点圆形开始按钮确认守备，不走胜率自动选择，且不进入无限循环。"""
+    """键盘无效：点圆形开始按钮确认守备，不碰胜率面板，且不进入无限循环。"""
     device = run_fight(keyboard_works=False, mouse_click_rate=True)
 
     assert device.defense_runs == 1
     assert device.round_button_taps >= 1
+    assert device.auto_select_clicks == 0
     assert device.win_rate_card_finds == 0
     assert device.win_rate_clicks == 0
     assert device.phase == "finished"
@@ -273,15 +319,71 @@ def test_keyboardless_device_falls_back_to_win_rate(run_fight):
     assert device.phase == "finished"
 
 
-def test_keyboardless_plain_battle_starts_round_with_button(run_fight):
-    """键盘无效的普通战斗（刷经验本）：P+Enter 无效且没有胜率卡可点，必须点开始按钮开战。
+def test_keyboardless_plain_battle_auto_selects_then_starts(run_fight):
+    """键盘无效的普通战斗（刷经验本）：必须先自动选择技能，再点开始按钮。
 
-    实机日志中该场景曾停在技能选择界面：``_battle_operation`` 的默认分支只按 P+Enter
-    再（进入鼠标模式后）等 ``win_rate_card.png`` 命中，触摸端两者都不成立。
+    实机探针结论（PlayCover 1080 画布）：没选技能时圆形开始按钮是灰的，单点 5 个候选
+    坐标全都不开战；只有"点胜率面板(自动选择) → 点开始按钮"这个组合能开战
+    （pause 0.62 → 0.96，more_information 0.97 → 0.22）。旧实现只按 P+Enter 再等
+    胜率卡模板命中，触摸端既送不进按键、模板也打不中（实测 0.42），所以一直卡住。
     """
     device = run_fight(
         keyboard_works=False,
         mouse_click_rate=True,
+        win_rate_card_visible=False,
+        defense_first_round=False,
+    )
+
+    assert device.auto_select_clicks >= 1
+    assert device.round_button_taps >= 1
+    assert device.phase == "finished"
+
+
+def test_round_start_button_falls_back_to_gear_anchor_without_ocr_labels(monkeypatch):
+    """没有面板文字时，开始按钮锚点仍靠 battle/gear_right.png（实机命中 0.967）。
+
+    只测锚点本身：把按钮设为可点（已有技能）后，仅凭齿轮锚点也要点中。
+    """
+    device = FakeDevice(keyboard_works=False, mouse_click_rate=False, ocr_labels_available=False)
+    monkeypatch.setattr(battle_module, "auto", device)
+    monkeypatch.setattr(battle_module, "sleep", device.clock.sleep)
+    device.skills_assigned = True
+
+    assert Battle._click_round_start_button() is True
+    assert device.round_button_taps >= 1
+
+
+def test_defense_keeps_selection_when_ocr_labels_missing(run_fight):
+    """键盘无效且面板文字识别不到：守备仍用开始按钮确认，不得退化成自动选择。
+
+    自动选择会覆盖刚点好的全员守备，所以守备路径只能点按钮本身，不能点齿轮/胜率面板。
+    """
+    device = run_fight(
+        keyboard_works=False,
+        mouse_click_rate=True,
+        ocr_labels_available=False,
+        defense_first_round=True,
+    )
+
+    assert device.defense_runs == 1
+    assert device.round_button_taps >= 1
+    assert device.auto_select_clicks == 0
+    assert device.win_rate_card_finds == 0
+    assert device.win_rate_clicks == 0
+    assert device.phase == "finished"
+
+
+def test_keyboardless_plain_battle_survives_language_misdetection(run_fight):
+    """实机根因：current_language 被误判成 zh_cn 时 find_language_text 只找中文，英文面板认不出。
+
+    此时 ``find_text_element`` 用不查语言表的取词仍能找到 ``Win Rate``/``Damage``，
+    必须靠它把按钮点出来 —— 两个图片锚点都不可用时也得能开战。
+    """
+    device = run_fight(
+        keyboard_works=False,
+        mouse_click_rate=True,
+        language_gate_stuck=True,
+        gear_right_visible=False,
         win_rate_card_visible=False,
         defense_first_round=False,
     )

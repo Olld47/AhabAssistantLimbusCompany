@@ -21,6 +21,16 @@ from utils.utils import find_skill3
 
 DEFENSE_FOR_SOLO_TURN_LIMIT = 5
 
+# 触摸端开战（PlayCover 没有键盘时的兜底）。实机（PlayCover，1080 画布）实测：
+#   - 开始按钮就是 battle/gear_right.png 的命中中心；
+#   - 但没选技能时开始按钮是灰的、点它不会开战 —— 必须先点胜率面板触发"自动选择"（自动战斗）；
+#   - 胜率面板可点区域在 OCR "Rate" 文字右侧，实测文字中心 +(50, -10) 命中。
+_ROUND_START_POLLS = 3
+_ROUND_START_POLL_INTERVAL = 0.6
+# 开始到暂停按钮可识别之间有加载延迟，单次 sleep(1) 容易误判成没点动
+_ROUND_BUTTON_FROM_GEAR = (32, 27)  # 维护者另一套布局的按钮偏移，作为齿轮中心的备用候选
+_WIN_RATE_PANEL_FROM_LABEL = (50, -10)  # 相对 OCR "Rate" 文字中心（1080 画布实测）
+
 
 @dataclass
 class DefenseForSoloState:
@@ -118,41 +128,108 @@ class Battle:
         return auto.supports_keyboard
 
     @staticmethod
-    def _click_round_start_button() -> bool:
-        """点技能条右端的圆形“开始回合”按钮（触摸端没有键盘时的开战方式）。
+    def _find_win_rate_labels() -> tuple[list | bool | None, list | bool | None]:
+        """取右侧胜率/伤害面板文字位置，返回 ``(rate, damage)``（未命中为 False/None）。
 
-        位置不写死：按钮与右侧胜率/伤害面板同属右下角簇，会随技能条布局整体平移，
-        因此用 OCR 找到面板文字（``Win Rate`` / ``Damage``）再向左取点；按钮高度
-        即两块面板文字的中间（实机实测：面板文字 x 中心 1453 时按钮在 (1290, 850)，
-        1080 画布偏移 -163，1440 画布即 -217）。
+        ``find_language_text`` 依赖 ``path_manager.current_language``：一旦它被误判
+        （英文界面记成 ``zh_cn``），只会去找中文的「胜率/伤害」而漏掉 ``Win Rate``/``Damage``。
+        因此失败后再用不查语言表的 ``find_text_element`` 取一次词。
         """
         rate = auto.find_language_text("胜率", "rate")
         damage = auto.find_language_text("伤害", "damage")
-        if rate is False or damage is False or rate is None or damage is None:
-            return False
+        if rate is False or rate is None or damage is False or damage is None:
+            rate = auto.find_text_element(["胜率", "rate"])
+            damage = auto.find_text_element(["伤害", "damage"])
+            log.debug(f"按语言取面板文字失败，改用语言无关取词：rate={rate}, damage={damage}")
+        return rate, damage
+
+    @staticmethod
+    def _click_round_start_button() -> bool:
+        """点技能条右端的圆形“开始回合”按钮（触摸端没有键盘时的开战方式）。
+
+        锚点按可用性取用，实机（PlayCover 1080 画布）实测：
+
+        1. ``battle/gear_right.png`` 的**命中中心**就是按钮本体（实测点它即可开战）；
+        2. 齿轮中心 +(32, 27)（维护者另一套布局实测的偏移，作为备用）；
+        3. OCR 面板文字推算：按钮高度 = 胜率/伤害两块文字的中间，x 在面板文字左侧
+           -217（1440 画布）。
+
+        注意：**没有技能被选中时这个按钮是灰的，怎么点都不会开战** —— 普通战斗要先
+        :meth:`_auto_select_skills`（见 :meth:`_touch_start_round`）。
+        点完逐个轮询暂停按钮确认回合真的开始（开始到暂停按钮可识别之间有加载延迟）。
+        """
         scale = cfg.set_win_size / 1440
-        button_x = rate[0] - 217 * scale
-        button_y = (rate[1] + damage[1]) / 2
-        # 位置可能因语言/字号略有偏差，向左再补两个候选（都在面板左侧，不会误触自动选择）
-        for dx in (0, -60 * scale, -120 * scale, 60 * scale):
-            auto.mouse_click(button_x + dx, button_y)
-            sleep(1)
-            if Battle._round_started():
-                if dx:
-                    log.debug(f"开始按钮在 OCR 锚点基础上偏移 {dx:.0f} 命中")
-                return True
+        gear_scale = cfg.set_win_size / 1080
+        candidates: list[tuple[float, float, str]] = []
+
+        if gear := auto.find_element("battle/gear_right.png"):
+            candidates.append((gear[0], gear[1], "齿轮中心"))
+            candidates.append(
+                (
+                    gear[0] + _ROUND_BUTTON_FROM_GEAR[0] * gear_scale,
+                    gear[1] + _ROUND_BUTTON_FROM_GEAR[1] * gear_scale,
+                    "齿轮偏移",
+                )
+            )
+
+        rate, damage = Battle._find_win_rate_labels()
+        if rate is not False and rate is not None and damage is not False and damage is not None:
+            button_y = (rate[1] + damage[1]) / 2
+            # 位置可能因语言/字号略有偏差，向左再补候选（都在面板左侧，不会误触自动选择）
+            candidates.extend(
+                (rate[0] + dx, button_y, "OCR面板") for dx in (-217 * scale, -277 * scale, -337 * scale, -157 * scale)
+            )
+
+        if not candidates:
+            log.warning("触摸端找不到开始按钮锚点：gear_right 与面板文字均未命中")
+            return False
+
+        for index, (x, y, source) in enumerate(candidates):
+            auto.mouse_click(x, y)
+            for _ in range(_ROUND_START_POLLS):
+                sleep(_ROUND_START_POLL_INTERVAL)
+                if Battle._round_started():
+                    if index:
+                        log.debug(f"开始按钮第 {index + 1} 个候选({x:.0f},{y:.0f})命中（{source}）")
+                    return True
         return False
 
-    def _touch_start_round(self, keep_selection: bool) -> bool:
-        """触摸端开始当前回合：先点圆形开始按钮，点不动才退化为胜率自动选择。
+    @staticmethod
+    def _auto_select_skills() -> bool:
+        """点右侧胜率面板触发"自动选择"（游戏自动给所有罪人选技能）＝ 自动战斗。
 
-        P+Enter 在触摸端送不进游戏，只能点界面；开始按钮能保住手动选择，
-        胜率自动选择会覆盖它，因此 ``keep_selection=True`` 时后者只作兜底并给出警告。
+        PC 端 ``mouse_click_rate`` 兜底里的"点胜率卡"就是这一步；没有它，技能选择界面
+        的圆形开始按钮是灰的、点不动（实机实测）。面板可点区域在 OCR ``Rate`` 文字
+        右侧（1080 画布实测 +(50, -10) 命中）。
         """
-        if self._click_round_start_button():
-            return True
+        rate, _damage = Battle._find_win_rate_labels()
+        if rate is False or rate is None:
+            log.debug("未识别到胜率面板文字，无法触发自动选择")
+            return False
+        offset_scale = cfg.set_win_size / 1080
+        auto.mouse_click(
+            rate[0] + _WIN_RATE_PANEL_FROM_LABEL[0] * offset_scale,
+            rate[1] + _WIN_RATE_PANEL_FROM_LABEL[1] * offset_scale,
+        )
+        sleep(1)
+        return True
+
+    def _touch_start_round(self, keep_selection: bool) -> bool:
+        """触摸端开始当前回合。
+
+        P+Enter 在触摸端送不进游戏，只能点界面：
+
+        - ``keep_selection=True``（守备/链接战已手动选好技能）：直接点开始按钮，
+          **不碰胜率面板** —— 自动选择会覆盖手动守备/划线。
+        - ``keep_selection=False``（普通战斗，如刷经验本）：技能还没选、开始按钮是灰的，
+          必须先点胜率面板自动选择技能（自动战斗），再点开始按钮。
+        """
         if keep_selection:
+            if self._click_round_start_button():
+                return True
             log.warning("触摸端无法用开始按钮确认手动选择，改用胜率自动选择（会覆盖守备/划线）")
+        elif self._auto_select_skills() and self._click_round_start_button():
+            return True
         if self._round_started():
             return True
         my_scale = cfg.set_win_size / 1440

@@ -170,9 +170,12 @@ In the Settings screen, turn on the "Use Emulator" option, and it is recommended
 - Screenshots and touches go through the MaaTools TCP protocol straight to the game window (native pixels), same as on
   Windows/emulators. Start the game in PlayCover manually; AALC will not launch it.
 - **Known gap**: the MaaTools protocol only provides touch (`TUCH`) and screenshot commands — there is no keyboard or
-  text command. Keyboard-dependent actions now fall back to touches: **starting a round** first taps the on-screen start
-  button to confirm the current selection (keeping the first-round guard), and only degrades to the win-rate auto-select
-  if that fails — the latter **overrides manual guards / chain-battle lines** (a warning is logged).
+  text command. Keyboard-dependent actions now fall back to touches: **starting a round** in a normal battle first taps
+  the win-rate panel so the game auto-assigns skills (auto-battle) and then taps the start button — on real hardware the
+  start button is greyed out and does nothing while no skill is assigned; when there is already a manual selection
+  (first-round guard / chain-battle lines) only the start button is tapped (keeping the selection), and only if that
+  fails does it degrade to the win-rate auto-select — the latter **overrides manual guards / chain-battle lines** (a
+  warning is logged).
   **Forfeiting / restarting a Mirror run** taps the in-battle pause button as the ESC substitute (same settings
   overlay); the **return-to-main-menu** last resort taps the on-screen settings/back entries instead of pressing ESC;
   and **Mirror keyboard pathfinding** (`mirror_keyboard_navigation` / simple keyboard pathfinding) automatically falls
