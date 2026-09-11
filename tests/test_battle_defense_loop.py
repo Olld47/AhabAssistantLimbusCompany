@@ -48,6 +48,9 @@ class FakeInputHandler:
     def __init__(self, supports_keyboard: bool) -> None:
         self.supports_keyboard = supports_keyboard
 
+    def supports_key(self, key: str) -> bool:
+        return self.supports_keyboard
+
 
 def _win_rate_click_point() -> tuple[float, float]:
     scale = cfg.set_win_size / 1440
@@ -110,6 +113,9 @@ class FakeDevice:
         self.auto_select_clicks = 0
         self.start_battle = Battle(is_tool=True)
         self.start_battle.mouse_click_rate = mouse_click_rate
+
+    def supports_key(self, key: str) -> bool:
+        return self.keyboard_works
 
     @property
     def phase(self) -> str:
@@ -190,7 +196,7 @@ class FakeDevice:
 
     # --- 输入 ---
     def key_press(self, key):
-        # 触摸端 key_press 是空实现，与 PlayCover/MaaTools 一致
+        # 键盘不可用时按键不生效（如未授权辅助功能/触摸端）
         self.clock.sleep(0.05)
         if self.keyboard_works and key == "enter" and self.phase == "selection":
             self._start_round()

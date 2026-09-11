@@ -16,7 +16,7 @@ from PySide6.QtCore import QT_TRANSLATE_NOOP, QMutex, QThread
 from app import mediator
 from app.windows_toast import TemplateToast, send_toast
 from module.automation import auto
-from module.automation.input_handlers.playcover_control import PLAYCOVER_SIMULATOR_TYPE
+from module.automation.input_handlers.macos.playcover_control import PLAYCOVER_SIMULATOR_TYPE
 from module.config import TeamSetting, cfg
 from module.decorator.decorator import begin_and_finish_time_log
 from module.game_and_screen import game_process, screen
@@ -154,7 +154,7 @@ def init_game():
 
             MumuControl(instance_number=mumu_instance_number)
         elif cfg.simulator_type == PLAYCOVER_SIMULATOR_TYPE:
-            from module.automation.input_handlers.playcover_control import (
+            from module.automation.input_handlers.macos.playcover_control import (
                 PlayCoverControl,
             )
 
@@ -178,7 +178,7 @@ def init_game():
 
             MumuControl.connection_device.start_game()
         elif cfg.simulator_type == PLAYCOVER_SIMULATOR_TYPE:
-            from module.automation.input_handlers.playcover_control import (
+            from module.automation.input_handlers.macos.playcover_control import (
                 PlayCoverControl,
             )
 

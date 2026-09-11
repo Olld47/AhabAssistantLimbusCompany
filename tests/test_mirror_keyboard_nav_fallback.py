@@ -18,11 +18,15 @@ BUS_POSITION = (1000.0, 700.0)
 
 
 class FakeDevice:
-    def __init__(self, *, supports_keyboard: bool):
+    def __init__(self, *, supports_keyboard: bool, keyboard_keys: frozenset[str] | None = None):
         self.supports_keyboard = supports_keyboard
+        self.keyboard_keys = keyboard_keys
         self.key_presses = []
         self.clicks = []
         self.mouse_to_blank_calls = 0
+
+    def supports_key(self, key: str) -> bool:
+        return self.supports_keyboard and (self.keyboard_keys is None or key in self.keyboard_keys)
 
     def find_element(self, target, *args, **kwargs):
         if target == BUS:
@@ -45,8 +49,13 @@ class FakeDevice:
 
 @pytest.fixture
 def env(monkeypatch):
-    def _setup(*, supports_keyboard: bool, keyboard_navigation: bool = True):
-        device = FakeDevice(supports_keyboard=supports_keyboard)
+    def _setup(
+        *,
+        supports_keyboard: bool,
+        keyboard_navigation: bool = True,
+        keyboard_keys: frozenset[str] | None = None,
+    ):
+        device = FakeDevice(supports_keyboard=supports_keyboard, keyboard_keys=keyboard_keys)
         monkeypatch.setattr(search_road_module, "auto", device)
         monkeypatch.setattr(search_road_module, "sleep", lambda *_: None)
         monkeypatch.setattr(
@@ -103,3 +112,24 @@ def test_enter_next_node_uses_click_path_when_keyboard_navigation_disabled(env):
     assert MirrorMap().enter_next_node("M") is True
     assert device.key_presses == []
     assert len(device.clicks) == 1
+
+
+PLAYCOVER_KEYS = frozenset({"enter", "return", "p", "esc"})
+
+
+def test_enter_next_node_falls_back_on_device_without_arrow_keys(env):
+    """只送得到 Enter/P/ESC 的设备（PlayCover）：方向键送不进，仍回退到点击寻路。"""
+    device = env(supports_keyboard=True, keyboard_keys=PLAYCOVER_KEYS)
+
+    assert MirrorMap().enter_next_node("M") is True
+    assert device.key_presses == []
+    assert len(device.clicks) == 1
+
+
+def test_simple_keyboard_search_refuses_device_without_arrow_keys(env):
+    """只送得到 Enter/P/ESC 的设备（PlayCover）：简单键盘寻路同样拒绝，不按方向键。"""
+    device = env(supports_keyboard=True, keyboard_keys=PLAYCOVER_KEYS)
+
+    assert search_road_module.search_road_simple_keyboard() is False
+    assert device.key_presses == []
+    assert device.mouse_to_blank_calls == 0

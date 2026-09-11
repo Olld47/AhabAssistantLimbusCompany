@@ -8,7 +8,7 @@
 
 import pytest
 
-from module.automation.input_handlers.playcover_control import (
+from module.automation.input_handlers.macos.playcover_control import (
     _PINCH_NARROW_RATIO,
     _PINCH_STEPS,
     _PINCH_WIDE_RATIO,

@@ -88,7 +88,7 @@ large
 
 **Note**: The Release is based on the x86_64 architecture for Windows systems. There is currently no Release for Arm architecture (such as Apple M-series chips, Raspberry Pi, etc.), RISCV architecture, Mac systems, or Linux systems. If you need to run AALC on unsupported platforms, please refer to the **Run the source code** and **Build guide** chapters. Contributions as a developer to submit PRs for multi-platform adaptation are also welcome. In the future, multi-platform Release support may be added based on user demand.
 
-> macOS (Apple Silicon/Intel): running from source now works (GUI boots). Features that rely on Windows APIs are unavailable on macOS: background click/screenshot (win32), window-handle management, HDR detection, scheduled tasks, Toast notifications, and admin elevation. `uv sync` or `pip install -r requirements.txt` automatically skips Windows-only packages (pywin32/pyuac/windows-toasts). On first GUI run, grant the terminal Screen Recording and Accessibility permissions in System Settings → Privacy & Security so foreground-mode (pyautogui) input and screenshots work.
+> macOS (Apple Silicon/Intel): running from source now works (GUI boots). Features that rely on Windows APIs are unavailable on macOS: background click/screenshot (win32), window-handle management, HDR detection, scheduled tasks, Toast notifications, and admin elevation. `uv sync` or `pip install -r requirements.txt` automatically skips Windows-only packages (pywin32/pyuac/windows-toasts). On first GUI run, grant the terminal Screen Recording and Accessibility permissions in System Settings → Privacy & Security so foreground-mode (pyautogui) input and screenshots work. In PlayCover (MaaTools) mode, **Enter / P / ESC** are injected into the game process with `CGEventPostToPid`, so the game does not need to be focused; this requires the Accessibility permission for the program running AALC (the terminal for source runs, `AALC.app` for packaged builds). Arrow keys and text input still fall back to touches.
 
 ---
 
@@ -255,6 +255,11 @@ uv run main.py
 # Update
 git pull
 ```
+
+> Terminal logs default to DEBUG and are noisy. Set the level with an environment variable before starting the
+> process: `AALC_LOG_LEVEL=INFO uv run main.py` (DEBUG/INFO/WARNING/ERROR/CRITICAL, or a number). `logs/debugLog.log`
+> still records DEBUG by default so you can attach full logs to a bug report; add `AALC_LOG_FILE_LEVEL=INFO` to quiet
+> that too.
 
 ### Using pip (Excludes dev packages)
 

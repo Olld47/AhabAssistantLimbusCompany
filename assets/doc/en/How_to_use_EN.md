@@ -169,21 +169,21 @@ In the Settings screen, turn on the "Use Emulator" option, and it is recommended
   port = the one in the window title (default `1717`, must match the "Port:" setting in PlayCover).
 - Screenshots and touches go through the MaaTools TCP protocol straight to the game window (native pixels), same as on
   Windows/emulators. Start the game in PlayCover manually; AALC will not launch it.
-- **Known gap**: the MaaTools protocol only provides touch (`TUCH`) and screenshot commands — there is no keyboard or
-  text command. Keyboard-dependent actions now fall back to touches: **starting a round** in a normal battle first taps
-  the win-rate panel so the game auto-assigns skills (auto-battle) and then taps the start button — on real hardware the
-  start button is greyed out and does nothing while no skill is assigned; when there is already a manual selection
-  (first-round guard / chain-battle lines) only the start button is tapped (keeping the selection), and only if that
-  fails does it degrade to the win-rate auto-select — the latter **overrides manual guards / chain-battle lines** (a
-  warning is logged).
-  **Forfeiting / restarting a Mirror run** taps the in-battle pause button as the ESC substitute (same settings
-  overlay); the **return-to-main-menu** last resort taps the on-screen settings/back entries instead of pressing ESC;
-  and **Mirror keyboard pathfinding** (`mirror_keyboard_navigation` / simple keyboard pathfinding) automatically falls
-  back to click pathfinding on touch devices (logged once); and **Mirror map zoom** (mouse wheel on PC) uses a
-  two-finger pinch on touch devices. Also, **"Use team code" cannot type into the in-game input
-  box**: loading fails, AALC logs `编队码加载失败，继续使用当前队伍配置` and continues
-  with the current team configuration (the task is not interrupted). That feature is rarely used and has no fallback for
-  now; set up the team manually in game, or use the emulator background mode (ADB) described above.
+- **Keyboard**: the MaaTools protocol has no keyboard command, but the game itself (a PlayTools-injected process) reads
+  the hardware keyboard directly, so **Enter (confirm / start round), P (auto-select skills) and ESC (back / pause)**
+  are injected into the game process by AALC with `CGEventPostToPid` — the game does not need to be focused, and you can
+  keep using your Mac meanwhile. This requires the Accessibility permission for **the program running AALC** (the
+  terminal for source runs, `AALC.app` for packaged builds) in System Settings → Privacy & Security → Accessibility;
+  without it those three keys fall back to touches automatically.
+- **Starting a round**: with the keyboard available it uses **P+Enter**, same as on Windows; if the round is not
+  detected as started (e.g. the game missed the keys), later rounds automatically use the touch fallback (tap the
+  win-rate panel so the game auto-assigns skills, then tap the start button), which **overrides manual guards /
+  chain-battle lines** (a warning is logged).
+- **Still touch-only**: **arrow keys** (`mirror_keyboard_navigation` and simple keyboard pathfinding fall back to click
+  pathfinding, logged once), **Mirror map zoom** (mouse wheel on PC becomes a two-finger pinch), and **text input**
+  ("Use team code" cannot type the code: AALC logs `编队码加载失败，继续使用当前队伍配置` and continues with the
+  current team configuration without interrupting the task; set up the team manually in game if you need it, or use the
+  emulator background mode (ADB) described above).
 
 ### Third-Party Script Support
 

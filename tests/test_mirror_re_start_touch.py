@@ -1,7 +1,7 @@
-"""回归测试：镜牢战败重开（Mirror.re_start）在触摸端如何打开暂停浮层。
+"""回归测试：镜牢战败重开（Mirror.re_start）在键盘不可用时如何打开暂停浮层。
 
-键盘端维持原样：按 ESC 打开设置浮层。触摸端（PlayCover/MaaTools 的 ``key_press``
-是空实现）没有 ESC 通道，必须点战斗内暂停按钮 ``battle/setting_assets.png``
+键盘可用：按 ESC 打开设置浮层。键盘不可用（未授权辅助功能、触摸端等，``supports_key("esc")``
+为 False）时没有 ESC 通道，必须点战斗内暂停按钮 ``battle/setting_assets.png``
 （与 ``battle.py`` / ``back_init_menu.py`` 中"点设置按钮再点放弃战斗"的配对一致），
 否则取不到浮层里的 ``battle/give_up_assets.png``，循环只能空转到 retry 看门狗。
 """
@@ -57,6 +57,9 @@ class FakeDevice:
         if target == FORFEIT_CONFIRM:
             return self.pause_open
         return False
+
+    def supports_key(self, key: str) -> bool:
+        return self.supports_keyboard
 
     def key_press(self, key):
         self.key_presses.append(key)

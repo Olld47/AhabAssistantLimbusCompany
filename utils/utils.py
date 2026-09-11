@@ -14,7 +14,7 @@ try:
 except ImportError:
     win32crypt = None  # type: ignore[assignment]
 
-from module.automation.input_handlers.playcover_control import PLAYCOVER_SIMULATOR_TYPE
+from module.automation.input_handlers.macos.playcover_control import PLAYCOVER_SIMULATOR_TYPE
 from module.config import cfg
 from module.logger import log
 
@@ -202,7 +202,7 @@ def check_game_running() -> bool:
             )
             return MumuControl.connection_device.check_game_alive()
         elif cfg.simulator_type == PLAYCOVER_SIMULATOR_TYPE:
-            from module.automation.input_handlers.playcover_control import (
+            from module.automation.input_handlers.macos.playcover_control import (
                 PlayCoverControl,
             )
 

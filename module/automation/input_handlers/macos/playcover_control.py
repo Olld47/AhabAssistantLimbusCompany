@@ -5,7 +5,9 @@
 协议实现见 hguandl/PlayTools 的 ``MaaTools`` 分支（随社区分支 hguandl/PlayCover
 分发，协议版本 4），可用命令：``SCRN``/``BGR\\x01`` 截图、``SIZE`` 尺寸、
 ``RECT`` 窗口矩形、``BNDL`` 包名、``VERN`` 版本、``TUCH`` 触摸、``TERM`` 退出，
-没有键盘/文本指令；
+没有键盘/文本指令；Enter/P/ESC 改走 ``macos_keyboard``：游戏本体在 PlayTools 注入的
+进程里直接读硬件键盘，用 ``CGEventPostToPid`` 把按键投递给该进程即可（不需要窗口焦点），
+其余按键与文本仍走触摸兜底；
 - 连接后客户端先发 4 字节魔数 ``MAA\\0``，服务端回 ``OKAY``；
 - 之后每条命令 = 2 字节大端长度 + 载荷；载荷前 4 字节为命令魔数；
 - 截图实际尺寸 = 游戏窗口像素（PlayCover 按设备型号/缩放渲染，可能带 2x
@@ -37,8 +39,9 @@ from PIL import Image
 from module.config import cfg
 from module.logger import log
 
-from . import AbstractInput
-from .scroll_swipe import build_scroll_swipe_plan
+from .. import AbstractInput
+from ..scroll_swipe import build_scroll_swipe_plan
+from . import macos_keyboard
 
 PLAYCOVER_SIMULATOR_TYPE = 20
 """config.yaml 中 simulator_type 的值：PlayCover (MaaTools)。"""
@@ -84,8 +87,18 @@ class PlayCoverControl(AbstractInput):
     connection_device: "PlayCoverControl | None" = None
     _connection_lock = threading.RLock()
 
-    supports_keyboard = False
-    """MaaTools 协议没有键盘指令，按键送不到游戏（见本模块开头说明）。"""
+    supports_keyboard = True
+    """MaaTools 协议没有键盘指令，但游戏本体直接读硬件键盘：按键经 ``macos_keyboard``
+    用 CGEventPostToPid 注入游戏进程，不需要窗口焦点（见该模块说明）。"""
+
+    keyboard_keys = frozenset(macos_keyboard.KEYCODES)
+    """只保证这些键（enter/p/esc）送得到游戏；其余键（方向键等）仍走触摸兜底。"""
+
+    def supports_key(self, key: str) -> bool:
+        """按键能否送达游戏：仅 ``keyboard_keys``、有辅助功能权限且能定位游戏进程，否则触摸兜底。"""
+        if key not in self.keyboard_keys or not macos_keyboard.available():
+            return False
+        return macos_keyboard.game_pid(self.host, self.port) is not None
 
     @classmethod
     def get_connection(cls) -> "PlayCoverControl":
@@ -467,8 +480,18 @@ class PlayCoverControl(AbstractInput):
         log.debug(f"拉链结束：共发出 {sent} 个触摸点")
 
     def key_press(self, key: str):
-        """MaaTools 协议没有键盘指令（见 hguandl/PlayTools 的 MaaTools 分支），按键无法送达，
-        需要键盘的操作请改用触摸兜底。"""
+        """向游戏进程注入一次按键（Enter/P/ESC）。
+
+        MaaTools 协议没有键盘指令，但游戏直接读硬件键盘：经 ``macos_keyboard`` 用
+        CGEventPostToPid 注入即可（游戏不必在前台）。不支持的键或缺少辅助功能权限时
+        返回 False，由调用方走触摸兜底；调用前可用 ``supports_key`` 判断。
+        """
+        if key not in self.keyboard_keys:
+            log.warning(
+                f"PlayCover 不支持按键 {key}（仅 {sorted(self.keyboard_keys)}），该操作改用触摸兜底"
+            )
+            return False
+        return macos_keyboard.press(key, self.host, self.port)
 
     def input_text(self, text: str):
         log.warning("PlayCover (MaaTools) 协议不支持文本输入，跳过: %s", text)

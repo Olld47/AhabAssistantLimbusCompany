@@ -90,6 +90,9 @@ class FakeDevice:
     def mouse_click_blank(self, *args, **kwargs):
         return True
 
+    def supports_key(self, key: str) -> bool:
+        return self.supports_keyboard
+
     def key_press(self, key):
         self.key_presses.append(key)
         if self.supports_keyboard:

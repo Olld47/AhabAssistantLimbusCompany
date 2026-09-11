@@ -4,7 +4,7 @@
 零变化、回合不开始；补点后拉链生效）。这里用假触摸原语锁定"每段都补点且步长受限"。
 """
 
-from module.automation.input_handlers.playcover_control import PlayCoverControl
+from module.automation.input_handlers.macos.playcover_control import PlayCoverControl
 
 STEP_LEN = 10  # 与实现里的 step_len 一致（画布像素）
 

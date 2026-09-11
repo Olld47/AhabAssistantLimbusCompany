@@ -19,7 +19,7 @@ except ImportError:
 import pyautogui
 from PIL import Image
 
-from module.automation.input_handlers.playcover_control import PLAYCOVER_SIMULATOR_TYPE
+from module.automation.input_handlers.macos.playcover_control import PLAYCOVER_SIMULATOR_TYPE
 from module.config import cfg
 from module.game_and_screen import screen
 from module.logger import log
@@ -46,7 +46,7 @@ class ScreenShot:
                     log.debug(f"MUMU截图报错 {type(e).__name__}: {e}")
                     return None
             elif cfg.simulator_type == PLAYCOVER_SIMULATOR_TYPE:
-                from module.automation.input_handlers.playcover_control import (
+                from module.automation.input_handlers.macos.playcover_control import (
                     PlayCoverControl,
                 )
 

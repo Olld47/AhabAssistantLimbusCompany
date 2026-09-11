@@ -84,7 +84,7 @@
 >
 > **macOS 上运行自动化：使用模拟器后台模式**。在 设置 → 模拟器设置 中开启「使用模拟器」，类型选择「其他模拟器」(10)，并按模拟器的实际 ADB 地址填写主机/端口（本机一般为 `127.0.0.1:16384`（MuMu 多开按实例 +32 递增）或 `127.0.0.1:5555`，可用 `adb devices` 确认）。截图与输入均走 ADB（screencap / minitouch），与 Windows 行为一致。MuMu(0)/BlueStacks 5(1) 为 Windows 桌面驱动，macOS 上不可用，请选择「其他」。模拟器需手动启动并保持 ADB 开启，脚本不会自动拉起模拟器进程。
 >
-> 也可走 **PlayCover** 直连 iOS 版游戏：在 PlayCover 中启用 MaaTools（游戏窗口标题显示 `[localhost:1717]`），AALC 类型选「PlayCover (MaaTools)」(20)、主机 `127.0.0.1`、端口 `1717`，截图与触摸经 MaaTools TCP 协议直接作用于游戏窗口，无需 Android 模拟器。
+> 也可走 **PlayCover** 直连 iOS 版游戏：在 PlayCover 中启用 MaaTools（游戏窗口标题显示 `[localhost:1717]`），AALC 类型选「PlayCover (MaaTools)」(20)、主机 `127.0.0.1`、端口 `1717`，截图与触摸经 MaaTools TCP 协议直接作用于游戏窗口，无需 Android 模拟器。键盘方面（MaaTools 协议没有键盘指令）：**Enter / P / ESC** 通过 `CGEventPostToPid` 直接注入游戏进程，游戏不必在前台、也不影响你同时用电脑；这需要在 系统设置 → 隐私与安全性 → 辅助功能 中勾选**运行 AALC 的程序**（源码运行即终端，打包版即 `AALC.app`），未授权时这三个键自动回退为触摸操作。方向键与文本输入仍走触摸兜底（见使用说明）。
 
 ---
 
@@ -235,6 +235,11 @@ uv run main.py
 # 更新
 git pull
 ```
+
+> 终端日志默认输出 DEBUG 级别，跑起来比较吵。用环境变量调级别（进程启动前设置）：
+> `AALC_LOG_LEVEL=INFO uv run main.py`（可选 DEBUG/INFO/WARNING/ERROR/CRITICAL 或数字）。
+> `logs/debugLog.log` 仍默认记录 DEBUG，便于反馈问题时附日志；需要一起降噪时再加
+> `AALC_LOG_FILE_LEVEL=INFO`。
 
 ### 使用 pip (不包含dev工具)
 

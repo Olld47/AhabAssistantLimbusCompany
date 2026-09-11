@@ -124,8 +124,8 @@ class Battle:
 
     @staticmethod
     def _keyboard_available() -> bool:
-        """当前输入设备能否把按键送达游戏（PlayCover/MaaTools 不能）。"""
-        return auto.supports_keyboard
+        """P+Enter 能否送达游戏（PlayCover 走 CGEventPostToPid 注入，方向键类按键不算）。"""
+        return auto.supports_key("p") and auto.supports_key("enter")
 
     @staticmethod
     def _find_win_rate_labels() -> tuple[list | bool | None, list | bool | None]:
@@ -145,7 +145,7 @@ class Battle:
 
     @staticmethod
     def _click_round_start_button() -> bool:
-        """点技能条右端的圆形“开始回合”按钮（触摸端没有键盘时的开战方式）。
+        """点技能条右端的圆形“开始回合”按钮（键盘送不进 P+Enter 时的开战方式）。
 
         锚点按可用性取用，实机（PlayCover 1080 画布）实测：
 
@@ -332,8 +332,8 @@ class Battle:
                     else:
                         self.mouse_click_rate = False
             else:
-                # 触摸端没有键盘，P+Enter 送不进游戏：点开始按钮开战（见 _touch_start_round）
-                msg = "触摸端点击开始按钮开始战斗"
+                # 键盘不可用（P+Enter 送不进游戏）：点开始按钮开战（见 _touch_start_round）
+                msg = "键盘不可用，点击开始按钮开始战斗"
                 self._touch_start_round(keep_selection=False)
         log.debug(msg)
         return limited_defense_succeeded
