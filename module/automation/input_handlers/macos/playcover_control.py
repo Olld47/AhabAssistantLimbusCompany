@@ -68,6 +68,13 @@ _PINCH_NARROW_RATIO = 0.10
 _PINCH_STEPS = 16
 _PINCH_STEP_INTERVAL = 0.02
 
+# 编队列表滚动参数，单位 = 1080p 画布像素，随 set_win_size 缩放。
+_TEAM_SCROLL_POINT_SPACING_AT_1080P = 8
+_TEAM_SCROLL_MAX_STEPS = 40
+_TEAM_SCROLL_STEP_INTERVAL = 0.03
+_TEAM_SCROLL_SETTLE_DURATION = 0.3
+_TEAM_SCROLL_SETTLE_STEP = 0.05
+
 
 class MaaToolsError(RuntimeError):
     """与 MaaTools 服务通信失败"""
@@ -195,7 +202,8 @@ class PlayCoverControl(AbstractInput):
                     self._close()
                     self._ensure_connected()
                     return func()
-        except (OSError, MaaToolsError) as e:
+        except (OSError, MaaToolsError, ValueError, struct.error) as e:
+            # 参数/载荷本身不合法（如坐标超量程）时不该重连，直接按输入失败上报。
             raise MaaToolsError(f"{action}失败: {e}") from e
 
     # ---------- 设备能力 ----------
@@ -320,12 +328,16 @@ class PlayCoverControl(AbstractInput):
 
         画布 = set_win_size 的 16:9 帧(等价设备点空间); 设备原生像素由
         SIZE 命令给出(4K 设备 + cfg=1080 即 ×2, 原生 1080p 设备即 ×1)。
+        越界坐标（拖拽终点越过屏幕边缘）夹到画布范围内：TUCH 坐标是 u16，
+        负数会让整条手势在打包时抛错、把任务打断。
         """
         canvas_w, canvas_h = self._canvas_size()
+        clamped_x = min(max(x, 0), canvas_w)
+        clamped_y = min(max(y, 0), canvas_h)
         device_w, device_h = self._device_pixel_size()
         return (
-            int(round(x * device_w / canvas_w)),
-            int(round(y * device_h / canvas_h)),
+            int(round(clamped_x * device_w / canvas_w)),
+            int(round(clamped_y * device_h / canvas_h)),
         )
 
     def device_to_canvas(self, x: float, y: float) -> tuple[int, int]:
@@ -420,6 +432,33 @@ class PlayCoverControl(AbstractInput):
         if remaining > 0.01:
             self._sleep_step(min(remaining, 0.05))
         self._touch_up(x + dx, y + dy)
+
+    def mouse_swipe_for_team_scroll(self, x, y, duration=0.3, dx=0, dy=0, move_back=True) -> None:
+        """滚动编队列表：逐点慢速拖动 + 静止尾段。
+
+        编队列表要按行滚动来定位队伍，而普通 ``mouse_swipe_for_scroll`` 只发 3 个
+        触摸点：游戏会丢掉这些事件，列表几乎不动，或者滚动量随机（误差足以差一行，
+        定位因此漂移）。这里以固定间隔逐点上报，让游戏逐帧跟手，滚动量可重复；
+        松手前保持静止，让游戏把速度判定归零，避免惯性把位移冲成未知行数。
+        """
+        distance = (dx * dx + dy * dy) ** 0.5
+        if distance == 0:
+            return
+        scale = cfg.set_win_size / 1080
+        spacing = max(_TEAM_SCROLL_POINT_SPACING_AT_1080P * scale, 1.0)
+        steps = min(max(int(distance / spacing), 1), _TEAM_SCROLL_MAX_STEPS)
+        end_x, end_y = x + dx, y + dy
+
+        self._touch_down(x, y)
+        for step in range(1, steps + 1):
+            ratio = step / steps
+            self._touch_move(x + dx * ratio, y + dy * ratio)
+            self._sleep_step(_TEAM_SCROLL_STEP_INTERVAL)
+        # 静止尾段：反复上报终点，让游戏把速度判定归零，松手后不再惯性滚动。
+        for _ in range(int(_TEAM_SCROLL_SETTLE_DURATION / _TEAM_SCROLL_SETTLE_STEP)):
+            self._sleep_step(_TEAM_SCROLL_SETTLE_STEP)
+            self._touch_move(end_x, end_y)
+        self._touch_up(end_x, end_y)
 
     def mouse_scroll(self, direction: int = -3) -> bool:
         """触摸端没有滚轮：用双指捏合模拟镜牢地图缩放。
