@@ -6,6 +6,7 @@ from module.logger import log
 from tasks.base import update_model_for_retry
 from tasks.base.retry import click_title_screen_safely, ensure_simulator_game_started, retry
 from tasks.mirror.reward_card import get_reward_card
+from utils.image_utils import ImageUtils
 
 LOOP_COUNT=30
 LOADING_TIMEOUT = 90
@@ -95,6 +96,17 @@ def back_init_menu(*, allow_restart: bool = True):
 
         # 左上角有后退键
         if auto.click_element("home/back_assets.png"):
+            continue
+
+        # 通行证（赛季）界面：领取日常/周常奖励后常停留在此界面，键盘端靠 ESC 退出。
+        # 它的返回键与 home/back_assets.png 不是同一套样式（同屏相似度仅约 0.37），识别不到，
+        # 但位置就在左上角的标准返回键槽位上，触摸端（没有 ESC）按该槽位点一下即可。
+        if not auto.supports_keyboard and (
+            auto.find_element("pass/pass_missions_assets.png") or auto.find_element("pass/weekly_assets.png")
+        ):
+            back_bbox = ImageUtils.get_bbox(ImageUtils.load_image("home/back_assets.png"))
+            auto.mouse_click((back_bbox[0] + back_bbox[2]) / 2, (back_bbox[1] + back_bbox[3]) / 2)
+            sleep(2)  # 等待界面切换动画播完，避免动画期间重复点击返回键
             continue
 
         # 在战斗中
