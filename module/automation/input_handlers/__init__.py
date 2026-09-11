@@ -9,6 +9,9 @@ class AbstractInput:
     Tips: 有特殊需求写在对应方法描述中
     """
 
+    supports_keyboard: bool = True
+    """该输入方式能否把按键送达游戏；触摸端（PlayCover/MaaTools）为 False。"""
+
     def __init__(self) -> None:
         self.is_pause: bool = False
         self.restore_time: float | None = None

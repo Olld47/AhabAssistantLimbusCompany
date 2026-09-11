@@ -78,6 +78,9 @@ class PlayCoverControl(AbstractInput):
     connection_device: "PlayCoverControl | None" = None
     _connection_lock = threading.RLock()
 
+    supports_keyboard = False
+    """MaaTools 协议没有键盘指令，按键送不到游戏（见本模块开头说明）。"""
+
     @classmethod
     def get_connection(cls) -> "PlayCoverControl":
         """返回唯一连接；不存在时新建（与 MumuControl/SimulatorControl 一致）。"""
@@ -408,17 +411,33 @@ class PlayCoverControl(AbstractInput):
         return
 
     def mouse_drag_link(self, position: list, drag_time=0.15, move_back=False) -> None:
-        """沿折线逐点拖动（拉链），最后抬起。"""
+        """沿折线逐点拖动（拉链），最后抬起。
+
+        段与段之间按距离插值补点：拉链是"按住连续划过"的手势，只发顶点会被游戏当成
+        瞬移而整条丢弃（实机实测：只发顶点 → 卡行/守备行画面零变化、回合不开始；
+        每段插值约 20 个中间点后 → 拉链生效、回合正常开始）。
+        ``drag_time`` 视作每段的目标耗时，实际节奏 = drag_time / 该段补点数。
+        """
         if not position:
             return
-        log.debug(f"开始拉链，列表{position}")
-        points = [tuple(map(int, pos)) for pos in position]
+        points = [(int(round(pos[0])), int(round(pos[1]))) for pos in position]
+        step_len = 10  # 画布像素：约每 10px 补一个中间点
+        log.debug(f"开始拉链，{len(points)} 个顶点: {points}")
         self._touch_down(*points[0])
-        step_sleep = max(0.01, (drag_time or 0.15) / max(1, len(points)))
-        for point in points[1:]:
-            self._touch_move(*point)
-            self._sleep_step(step_sleep)
+        sent = 1
+        for start, end in zip(points, points[1:]):
+            dist = max(abs(end[0] - start[0]), abs(end[1] - start[1]))
+            steps = max(2, int(dist / step_len))
+            step_sleep = max(0.006, (drag_time or 0.15) / steps)
+            for index in range(1, steps + 1):
+                self._touch_move(
+                    start[0] + (end[0] - start[0]) * index / steps,
+                    start[1] + (end[1] - start[1]) * index / steps,
+                )
+                self._sleep_step(step_sleep)
+                sent += 1
         self._touch_up(*points[-1])
+        log.debug(f"拉链结束：共发出 {sent} 个触摸点")
 
     def key_press(self, key: str):
         """MaaTools 协议没有键盘指令（见 hguandl/PlayTools 的 MaaTools 分支），按键无法送达，

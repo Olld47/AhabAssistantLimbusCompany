@@ -109,32 +109,60 @@ class Battle:
 
     @staticmethod
     def _round_started() -> bool:
-        """交战播片中才会出现暂停按钮，以此判断回合是否已经开始（需用刚按完键的画面）。"""
+        """交战播片中才会出现暂停按钮，以此判断回合是否已经开始（用刚操作完的画面）。"""
         return auto.find_element("battle/pause_assets.png", threshold=0.75, take_screenshot=True) is not None
 
-    def _start_battle(self, keep_selection: bool = False) -> None:
-        """开始当前回合。
+    @staticmethod
+    def _keyboard_available() -> bool:
+        """当前输入设备能否把按键送达游戏（PlayCover/MaaTools 不能）。"""
+        return getattr(getattr(auto, "input_handler", None), "supports_keyboard", True)
 
-        键盘可用时按 P+Enter；键盘无效时（如 PlayCover 触摸端，`key_press` 是空实现）
-        退化为鼠标操作，否则会停留在技能选择界面反复执行同一套操作形成死循环。
-        ``keep_selection`` 表示界面上已有手动选择（全员守备、链接战划线），
-        此时只用开始按钮确认，避免胜率自动选择把手动选择覆盖掉。
+    @staticmethod
+    def _click_round_start_button() -> bool:
+        """点技能条右端的圆形“开始回合”按钮（触摸端没有键盘时的开战方式）。
+
+        位置不写死：按钮与右侧胜率/伤害面板同属右下角簇，会随技能条布局整体平移，
+        因此用 OCR 找到面板文字（``Win Rate`` / ``Damage``）再向左取点；按钮高度
+        即两块面板文字的中间（实机实测：面板文字 x 中心 1453 时按钮在 (1290, 850)，
+        1080 画布偏移 -163，1440 画布即 -217）。
+        """
+        rate = auto.find_language_text("胜率", "rate")
+        damage = auto.find_language_text("伤害", "damage")
+        if rate is False or damage is False or rate is None or damage is None:
+            return False
+        scale = cfg.set_win_size / 1440
+        button_x = rate[0] - 217 * scale
+        button_y = (rate[1] + damage[1]) / 2
+        # 位置可能因语言/字号略有偏差，向左再补两个候选（都在面板左侧，不会误触自动选择）
+        for dx in (0, -60 * scale, -120 * scale, 60 * scale):
+            auto.mouse_click(button_x + dx, button_y)
+            sleep(1)
+            if Battle._round_started():
+                if dx:
+                    log.debug(f"开始按钮在 OCR 锚点基础上偏移 {dx:.0f} 命中")
+                return True
+        return False
+
+    def _start_battle(self, keep_selection: bool = False) -> None:
+        """结束技能选择、开始当前回合（守备/链接战这类已有手动选择的流程调用）。
+
+        键盘可用时与原来完全一致：只按 P+Enter，不做任何鼠标操作 —— 界面上的误点
+        （开始按钮 / 胜率自动选择）会把手动守备、链接战划线覆盖掉。
+        键盘无效的触摸端（PlayCover/MaaTools 的 ``key_press`` 是空实现）改用触摸：
+        ``keep_selection=True`` 时点圆形开始按钮确认手动选择，点不动才退化为胜率
+        自动选择（会覆盖手动选择）。
         """
         auto.key_press("p")
         sleep(0.5)
         auto.key_press("enter")
-        if self._round_started():
+        if self._keyboard_available():
             return
         if keep_selection:
-            if auto.click_element("battle/gear_right.png", take_screenshot=True):
-                self.mouse_click_rate = True
-            if self._round_started():
+            if self._click_round_start_button():
                 return
-        if not self.mouse_click_rate:
-            sleep(1)
-            if self._round_started():
-                return
-            self.mouse_click_rate = True
+            log.warning("触摸端无法用开始按钮确认手动选择，改用胜率自动选择（会覆盖守备/划线）")
+        if self._round_started():
+            return
         my_scale = cfg.set_win_size / 1440
         if pos := auto.find_element("battle/win_rate_card.png", threshold=0.75):
             pos = [pos[0] + 50 * my_scale, pos[1] - 50 * my_scale]
@@ -148,16 +176,18 @@ class Battle:
         avoid_skill_3: bool,
         prioritize_skill_3: bool = False,
         defense_for_solo_state: DefenseForSoloState | None = None,
-        defense_used_this_turn: bool = False,
+        defense_for_solo_used_this_turn: bool = False,
     ) -> bool:
         auto.mouse_click_blank()
         use_limited_defense = (
             defense_for_solo_state is not None
             and defense_for_solo_state.remaining_turns > 0
-            and not defense_used_this_turn
+            and not defense_for_solo_used_this_turn
         )
-        use_first_round_defense = first_turn and defense_first_round and not defense_used_this_turn
-        defense_performed = False
+        use_first_round_defense = (
+            first_turn and defense_first_round and not defense_for_solo_used_this_turn
+        )
+        limited_defense_succeeded = False
         if (use_limited_defense or use_first_round_defense) and auto.find_element(
             "battle/gear_left.png", threshold=0.9
         ):
@@ -171,16 +201,15 @@ class Battle:
                 else:
                     msg = "第一回合全员防御失败，本场战斗改为P+Enter"
                 self._start_battle()
-            else:
-                defense_performed = True
-                if use_limited_defense:
-                    defense_for_solo_state.consume_turn()
-                    log.info(f"小指良单通连续防御已执行，剩余 {defense_for_solo_state.remaining_turns} 回合")
-                    if defense_for_solo_state.remaining_turns == 0:
-                        log.info("本次镜牢的连续防御已完成，后续回合恢复普通战斗操作")
+            elif use_limited_defense:
+                defense_for_solo_state.consume_turn()
+                limited_defense_succeeded = True
+                log.info(f"小指良单通连续防御已执行，剩余 {defense_for_solo_state.remaining_turns} 回合")
+                if defense_for_solo_state.remaining_turns == 0:
+                    log.info("本次镜牢的连续防御已完成，后续回合恢复普通战斗操作")
             sleep(2)
             if not auto.find_element("battle/pause_assets.png", take_screenshot=True):
-                self._start_battle(keep_selection=defense_performed)
+                self._start_battle(keep_selection=True)
         elif self.defense_all_time:
             if auto.find_element("battle/gear_left.png", threshold=0.9):
                 msg = "使用全员防御模式开始战斗"
@@ -191,18 +220,31 @@ class Battle:
             use_prioritize_skill_3 = prioritize_skill_3 and not avoid_skill_3
             mode_name = "优先" if use_prioritize_skill_3 else "避免"
             msg = f"使用{mode_name}3技能模式开始战斗"
-            chain_battle_succeeded = self._chain_battle(prioritize_skill_3=use_prioritize_skill_3)
-            if chain_battle_succeeded is False:
+            if self._chain_battle(prioritize_skill_3=use_prioritize_skill_3) is False:
                 msg = f"使用{mode_name}三技能的链接战失败，本场战斗改为P+Enter"
                 self._start_battle()
             sleep(2)
             if not auto.find_element("battle/pause_assets.png", take_screenshot=True):
-                self._start_battle(keep_selection=chain_battle_succeeded is not False)
+                self._start_battle(keep_selection=True)
         else:
-            self._start_battle()
+            auto.key_press("p")
+            sleep(0.5)
+            auto.key_press("enter")
             msg = "使用P+Enter开始战斗"
+            if self.mouse_click_rate:
+                my_scale = cfg.set_win_size / 1440
+                if pos := auto.find_element("battle/win_rate_card.png", threshold=0.75):
+                    pos = [pos[0] + 50 * my_scale, pos[1] - 50 * my_scale]
+                    auto.mouse_click(pos[0], pos[1])
+                    auto.click_element("battle/gear_right.png")
+            else:
+                sleep(1)
+                if not auto.find_element("battle/pause_assets.png", threshold=0.75):
+                    self.mouse_click_rate = True
+                else:
+                    self.mouse_click_rate = False
         log.debug(msg)
-        return defense_performed
+        return limited_defense_succeeded
 
     @begin_and_finish_time_log(task_name="一次战斗")
     def fight(
@@ -231,21 +273,21 @@ class Battle:
             turn_ocr_bbox = ImageUtils.get_bbox(ImageUtils.load_image("battle/turn_ocr_assets.png"))
 
         first_turn = True
-        defense_used_this_turn = False
+        defense_for_solo_used_this_turn = False
         start_time = time.time()
 
         def perform_battle_operation() -> None:
-            nonlocal defense_used_this_turn
-            defense_used_this_turn = (
-                self._battle_operation(
-                    first_turn=first_turn,
-                    defense_first_round=defense_first_round,
-                    avoid_skill_3=avoid_skill_3,
-                    prioritize_skill_3=prioritize_skill_3,
-                    defense_for_solo_state=defense_for_solo_state,
-                    defense_used_this_turn=defense_used_this_turn,
-                )
-                or defense_used_this_turn
+            nonlocal defense_for_solo_used_this_turn
+            limited_defense_succeeded = self._battle_operation(
+                first_turn=first_turn,
+                defense_first_round=defense_first_round,
+                avoid_skill_3=avoid_skill_3,
+                prioritize_skill_3=prioritize_skill_3,
+                defense_for_solo_state=defense_for_solo_state,
+                defense_for_solo_used_this_turn=defense_for_solo_used_this_turn,
+            )
+            defense_for_solo_used_this_turn = (
+                defense_for_solo_used_this_turn or limited_defense_succeeded
             )
 
         self.fail_times = 0
@@ -289,7 +331,7 @@ class Battle:
                 sleep(2 * waiting)  # 战斗播片中增大间隔
                 chance = self.INIT_CHANCE
                 first_turn = False
-                defense_used_this_turn = False
+                defense_for_solo_used_this_turn = False
                 continue
 
             # 战斗失败重启
@@ -313,7 +355,7 @@ class Battle:
                 sleep(1)
                 start_time = time.time()
                 self.fail_times += 1
-                defense_used_this_turn = False
+                defense_for_solo_used_this_turn = False
                 if self.fail_times >= 5:
                     return False
                 continue
