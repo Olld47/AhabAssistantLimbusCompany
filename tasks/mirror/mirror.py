@@ -1157,7 +1157,11 @@ class Mirror:
                 continue
             if auto.click_element("mirror/road_in_mir/setting_assets.png"):
                 continue
-            auto.key_press("esc")
+            if auto.supports_keyboard:
+                auto.key_press("esc")
+            elif auto.click_element("battle/setting_assets.png", take_screenshot=True):
+                # 触摸端没有 ESC：点战斗内暂停按钮，打开与 ESC 相同的设置浮层
+                continue
             time.sleep(1)
             if retry() is False:
                 return False

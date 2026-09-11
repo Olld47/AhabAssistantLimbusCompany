@@ -172,8 +172,13 @@ In the Settings screen, turn on the "Use Emulator" option, and it is recommended
 - **Known gap**: the MaaTools protocol only provides touch (`TUCH`) and screenshot commands — there is no keyboard or
   text command. Keyboard-dependent actions now fall back to touches: **starting a round** first taps the on-screen start
   button to confirm the current selection (keeping the first-round guard), and only degrades to the win-rate auto-select
-  if that fails — the latter **overrides manual guards / chain-battle lines** (a warning is logged). Also, **"Use team
-  code" cannot type into the in-game input box**: loading fails, AALC logs `编队码加载失败，继续使用当前队伍配置` and continues
+  if that fails — the latter **overrides manual guards / chain-battle lines** (a warning is logged).
+  **Forfeiting / restarting a Mirror run** taps the in-battle pause button as the ESC substitute (same settings
+  overlay); the **return-to-main-menu** last resort taps the on-screen settings/back entries instead of pressing ESC;
+  and **Mirror keyboard pathfinding** (`mirror_keyboard_navigation` / simple keyboard pathfinding) automatically falls
+  back to click pathfinding on touch devices (logged once); and **Mirror map zoom** (mouse wheel on PC) uses a
+  two-finger pinch on touch devices. Also, **"Use team code" cannot type into the in-game input
+  box**: loading fails, AALC logs `编队码加载失败，继续使用当前队伍配置` and continues
   with the current team configuration (the task is not interrupted). That feature is rarely used and has no fallback for
   now; set up the team manually in game, or use the emulator background mode (ADB) described above.
 

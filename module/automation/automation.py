@@ -125,6 +125,11 @@ class Automation(metaclass=SingletonMeta):
                 setattr(self, name, method)
         self.memory_protection = cfg.memory_protection
 
+    @property
+    def supports_keyboard(self) -> bool:
+        """当前输入设备能否把按键送达游戏（PlayCover/MaaTools 不能）。"""
+        return getattr(self.input_handler, "supports_keyboard", True)
+
     def suspend_interactions(self) -> None:
         """暂时阻止业务线程继续点击。"""
         self._interaction_gate.clear()

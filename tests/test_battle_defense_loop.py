@@ -61,11 +61,20 @@ class FakeDevice:
     ROUND_START_DELAY = 1.0  # 真正开始回合到暂停按钮可被识别之间的延迟
     FRAME_COST = 0.15  # 一次截图/识别的时间
 
-    def __init__(self, *, keyboard_works: bool, mouse_click_rate: bool, start_button_works: bool = True):
+    def __init__(
+        self,
+        *,
+        keyboard_works: bool,
+        mouse_click_rate: bool,
+        start_button_works: bool = True,
+        win_rate_card_visible: bool = True,
+    ):
         self.clock = VirtualClock()
         self.keyboard_works = keyboard_works
         self.start_button_works = start_button_works
+        self.win_rate_card_visible = win_rate_card_visible
         self.input_handler = FakeInputHandler(supports_keyboard=keyboard_works)
+        self.supports_keyboard = keyboard_works
         self.model = "clam"
         self.screenshot = np.zeros((1080, 1920, 3), dtype=np.uint8)
         self.round_start_at: float | None = None
@@ -117,6 +126,8 @@ class FakeDevice:
             if target == "battle/gear_right.png":
                 return GEAR_RIGHT
             if target == "battle/win_rate_card.png":
+                if not self.win_rate_card_visible:
+                    return None
                 self.win_rate_card_finds += 1
                 return WIN_RATE_CARD
             return None
@@ -197,17 +208,25 @@ class FakeDevice:
 
 @pytest.fixture
 def run_fight(monkeypatch):
-    def _run(*, keyboard_works: bool, mouse_click_rate: bool, start_button_works: bool = True):
+    def _run(
+        *,
+        keyboard_works: bool,
+        mouse_click_rate: bool,
+        start_button_works: bool = True,
+        win_rate_card_visible: bool = True,
+        defense_first_round: bool = True,
+    ):
         device = FakeDevice(
             keyboard_works=keyboard_works,
             mouse_click_rate=mouse_click_rate,
             start_button_works=start_button_works,
+            win_rate_card_visible=win_rate_card_visible,
         )
         monkeypatch.setattr(battle_module, "auto", device)
         monkeypatch.setattr(battle_module, "sleep", device.clock.sleep)
         monkeypatch.setattr(battle_module, "retry", lambda *args, **kwargs: True)
         monkeypatch.setattr("tasks.base.retry.check_times", lambda *args, **kwargs: False)
-        device.start_battle.fight(defense_first_round=True)
+        device.start_battle.fight(defense_first_round=defense_first_round)
         return device
 
     return _run
@@ -251,4 +270,21 @@ def test_keyboardless_device_falls_back_to_win_rate(run_fight):
     device = run_fight(keyboard_works=False, mouse_click_rate=True, start_button_works=False)
 
     assert device.win_rate_card_finds >= 1
+    assert device.phase == "finished"
+
+
+def test_keyboardless_plain_battle_starts_round_with_button(run_fight):
+    """键盘无效的普通战斗（刷经验本）：P+Enter 无效且没有胜率卡可点，必须点开始按钮开战。
+
+    实机日志中该场景曾停在技能选择界面：``_battle_operation`` 的默认分支只按 P+Enter
+    再（进入鼠标模式后）等 ``win_rate_card.png`` 命中，触摸端两者都不成立。
+    """
+    device = run_fight(
+        keyboard_works=False,
+        mouse_click_rate=True,
+        win_rate_card_visible=False,
+        defense_first_round=False,
+    )
+
+    assert device.round_button_taps >= 1
     assert device.phase == "finished"

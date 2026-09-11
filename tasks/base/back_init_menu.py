@@ -14,6 +14,7 @@ LOADING_TIMEOUT = 90
 def back_init_menu(*, allow_restart: bool = True):
     loop_count = LOOP_COUNT
     loading_started_at = None
+    warned_no_escape = False
     auto.model = "clam"
     while True:
         loop_count -= 1
@@ -119,4 +120,17 @@ def back_init_menu(*, allow_restart: bool = True):
             continue
 
         auto.mouse_click_blank()
+        if not auto.supports_keyboard:
+            # 触摸端没有 ESC 通道（PlayCover/MaaTools 的 key_press 是空实现）：
+            # 上面 mirror legend 分支的齿轮点击被 legend 识别门控，识别抖动时会漏，
+            # 这里用新帧直接尝试界面上的设置/返回入口（与 luxcavation 的触摸兜底同一模式）
+            if auto.click_element("mirror/road_in_mir/setting_assets.png", take_screenshot=True):
+                continue
+            if auto.click_element("battle/setting_assets.png", take_screenshot=True):
+                continue
+            if auto.click_element("home/back_assets.png", take_screenshot=True):
+                continue
+            if not warned_no_escape:
+                log.warning("触摸端没有 ESC 通道且未识别到可点的设置/返回入口，界面可能卡住")
+                warned_no_escape = True
         auto.key_press("esc")

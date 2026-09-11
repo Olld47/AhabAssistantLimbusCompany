@@ -115,7 +115,7 @@ class Battle:
     @staticmethod
     def _keyboard_available() -> bool:
         """当前输入设备能否把按键送达游戏（PlayCover/MaaTools 不能）。"""
-        return getattr(getattr(auto, "input_handler", None), "supports_keyboard", True)
+        return auto.supports_keyboard
 
     @staticmethod
     def _click_round_start_button() -> bool:
@@ -143,31 +143,41 @@ class Battle:
                 return True
         return False
 
+    def _touch_start_round(self, keep_selection: bool) -> bool:
+        """触摸端开始当前回合：先点圆形开始按钮，点不动才退化为胜率自动选择。
+
+        P+Enter 在触摸端送不进游戏，只能点界面；开始按钮能保住手动选择，
+        胜率自动选择会覆盖它，因此 ``keep_selection=True`` 时后者只作兜底并给出警告。
+        """
+        if self._click_round_start_button():
+            return True
+        if keep_selection:
+            log.warning("触摸端无法用开始按钮确认手动选择，改用胜率自动选择（会覆盖守备/划线）")
+        if self._round_started():
+            return True
+        my_scale = cfg.set_win_size / 1440
+        if pos := auto.find_element("battle/win_rate_card.png", threshold=0.75):
+            pos = [pos[0] + 50 * my_scale, pos[1] - 50 * my_scale]
+            auto.mouse_click(pos[0], pos[1])
+            auto.click_element("battle/gear_right.png")
+            return True
+        log.warning("触摸端未能开始回合：开始按钮与胜率自动选择都未命中")
+        return False
+
     def _start_battle(self, keep_selection: bool = False) -> None:
         """结束技能选择、开始当前回合（守备/链接战这类已有手动选择的流程调用）。
 
         键盘可用时与原来完全一致：只按 P+Enter，不做任何鼠标操作 —— 界面上的误点
         （开始按钮 / 胜率自动选择）会把手动守备、链接战划线覆盖掉。
-        键盘无效的触摸端（PlayCover/MaaTools 的 ``key_press`` 是空实现）改用触摸：
-        ``keep_selection=True`` 时点圆形开始按钮确认手动选择，点不动才退化为胜率
-        自动选择（会覆盖手动选择）。
+        键盘无效的触摸端（PlayCover/MaaTools 的 ``key_press`` 是空实现）改用触摸
+        （见 :meth:`_touch_start_round`）。
         """
         auto.key_press("p")
         sleep(0.5)
         auto.key_press("enter")
         if self._keyboard_available():
             return
-        if keep_selection:
-            if self._click_round_start_button():
-                return
-            log.warning("触摸端无法用开始按钮确认手动选择，改用胜率自动选择（会覆盖守备/划线）")
-        if self._round_started():
-            return
-        my_scale = cfg.set_win_size / 1440
-        if pos := auto.find_element("battle/win_rate_card.png", threshold=0.75):
-            pos = [pos[0] + 50 * my_scale, pos[1] - 50 * my_scale]
-            auto.mouse_click(pos[0], pos[1])
-            auto.click_element("battle/gear_right.png")
+        self._touch_start_round(keep_selection)
 
     def _battle_operation(
         self,
@@ -227,22 +237,27 @@ class Battle:
             if not auto.find_element("battle/pause_assets.png", take_screenshot=True):
                 self._start_battle(keep_selection=True)
         else:
-            auto.key_press("p")
-            sleep(0.5)
-            auto.key_press("enter")
-            msg = "使用P+Enter开始战斗"
-            if self.mouse_click_rate:
-                my_scale = cfg.set_win_size / 1440
-                if pos := auto.find_element("battle/win_rate_card.png", threshold=0.75):
-                    pos = [pos[0] + 50 * my_scale, pos[1] - 50 * my_scale]
-                    auto.mouse_click(pos[0], pos[1])
-                    auto.click_element("battle/gear_right.png")
-            else:
-                sleep(1)
-                if not auto.find_element("battle/pause_assets.png", threshold=0.75):
-                    self.mouse_click_rate = True
+            if self._keyboard_available():
+                auto.key_press("p")
+                sleep(0.5)
+                auto.key_press("enter")
+                msg = "使用P+Enter开始战斗"
+                if self.mouse_click_rate:
+                    my_scale = cfg.set_win_size / 1440
+                    if pos := auto.find_element("battle/win_rate_card.png", threshold=0.75):
+                        pos = [pos[0] + 50 * my_scale, pos[1] - 50 * my_scale]
+                        auto.mouse_click(pos[0], pos[1])
+                        auto.click_element("battle/gear_right.png")
                 else:
-                    self.mouse_click_rate = False
+                    sleep(1)
+                    if not auto.find_element("battle/pause_assets.png", threshold=0.75):
+                        self.mouse_click_rate = True
+                    else:
+                        self.mouse_click_rate = False
+            else:
+                # 触摸端没有键盘，P+Enter 送不进游戏：点开始按钮开战（见 _touch_start_round）
+                msg = "触摸端点击开始按钮开始战斗"
+                self._touch_start_round(keep_selection=False)
         log.debug(msg)
         return limited_defense_succeeded
 

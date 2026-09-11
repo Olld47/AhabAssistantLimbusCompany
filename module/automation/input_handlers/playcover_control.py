@@ -59,6 +59,12 @@ _PHASE_DOWN = 0
 _PHASE_MOVE = 1
 _PHASE_UP = 3
 
+# 双指捏合（触摸端模拟滚轮缩放）的几何参数，单位 = 画布宽度的比例。
+_PINCH_WIDE_RATIO = 0.30
+_PINCH_NARROW_RATIO = 0.10
+_PINCH_STEPS = 16
+_PINCH_STEP_INTERVAL = 0.02
+
 
 class MaaToolsError(RuntimeError):
     """与 MaaTools 服务通信失败"""
@@ -403,7 +409,28 @@ class PlayCoverControl(AbstractInput):
         self._touch_up(x + dx, y + dy)
 
     def mouse_scroll(self, direction: int = -3) -> bool:
-        # 游戏内滚动通过滑动实现；与 SimulatorControl 一致，这里为占位
+        """触摸端没有滚轮：用双指捏合模拟镜牢地图缩放。
+
+        协议依据 PlayTools ``MaaTools.swift`` 的 ``toucherDispatch``：TUCH 载荷末字节是
+        contact 编号，``touchContexts[contact]`` 为每个 contact 维护独立的触摸 id，
+        同时发 contact 0/1 即真正的双指手势。语义与 PC 滚轮一致（见 ``Input.mouse_scroll``）：
+        ``direction <= 0`` 缩小 / 远离界面 = 双指靠拢，正数放大 = 双指分开。
+        """
+        canvas_w, canvas_h = self._canvas_size()
+        center_x, center_y = canvas_w / 2, canvas_h / 2
+        wide = canvas_w * _PINCH_WIDE_RATIO
+        narrow = canvas_w * _PINCH_NARROW_RATIO
+        start_gap, end_gap = (wide, narrow) if direction <= 0 else (narrow, wide)
+
+        self._touch(_PHASE_DOWN, center_x - start_gap / 2, center_y, contact=0)
+        self._touch(_PHASE_DOWN, center_x + start_gap / 2, center_y, contact=1)
+        for index in range(1, _PINCH_STEPS + 1):
+            gap = start_gap + (end_gap - start_gap) * index / _PINCH_STEPS
+            self._touch(_PHASE_MOVE, center_x - gap / 2, center_y, contact=0)
+            self._touch(_PHASE_MOVE, center_x + gap / 2, center_y, contact=1)
+            self._sleep_step(_PINCH_STEP_INTERVAL)
+        self._touch(_PHASE_UP, center_x - end_gap / 2, center_y, contact=0)
+        self._touch(_PHASE_UP, center_x + end_gap / 2, center_y, contact=1)
         return True
 
     def mouse_to_blank(self, coordinate=(1, 1), move_back=False) -> None:
