@@ -1,3 +1,4 @@
+import sys
 import time
 
 try:
@@ -70,6 +71,17 @@ class ScreenShot:
                     log.debug(f"adb截图报错 {type(e).__name__}: {e}")
                     return None
         else:
+            if sys.platform == "darwin":
+                # macOS：由 Quartz 直接抓取 CrossOver 游戏窗口，支持被其他窗口遮挡。
+                from module.macos.window import window
+
+                try:
+                    return window.capture(gray)
+                except userStopError:
+                    raise
+                except Exception as e:
+                    log.debug(f"macOS 窗口截图报错 {type(e).__name__}: {e}")
+                    return None
             # 将窗口移动到屏幕可见区域，确保获取到完整的内容
             screen.handle.bring_window_into_view(not cfg.background_click)
 

@@ -1,3 +1,4 @@
+import sys
 import threading
 import time
 
@@ -98,6 +99,8 @@ class RetryMonitor:
 
     def check_once(self, screenshot=None) -> bool:
         """检查一次重试弹窗，返回本轮是否执行了点击。"""
+        if auto.check_pause():
+            return False
         if screenshot is None:
             screenshot = auto.take_monitor_screenshot(max_age=self.screenshot_max_age)
         if screenshot is None:
@@ -136,10 +139,33 @@ class RetryMonitor:
         return True
 
     def _run(self) -> None:
+        # 只有 macOS 才有「游戏崩溃后自动重启」的恢复流程；Windows 不需要暂停监控。
+        if sys.platform == "darwin":
+            from module.macos.recovery import GameWindowLost, game_recovery
+        else:
+            GameWindowLost = ()
+            game_recovery = None
         while not self._stop_event.wait(self.poll_interval):
+            if game_recovery is not None and game_recovery.in_progress:
+                # 任务线程正在重启崩溃的游戏，监控线程先让位。
+                continue
             try:
                 self.check_once()
-            except Exception:
+            except Exception as exc:
+                from module.my_error.my_error import userStopError
+
+                if GameWindowLost and isinstance(exc, GameWindowLost):
+                    # 崩溃被监控线程先发现：交给任务线程处理。
+                    continue
+                if game_recovery is not None and game_recovery.in_progress:
+                    continue
+                if isinstance(exc, userStopError):
+                    if sys.platform == "darwin":
+                        from module.macos.control import cancel
+
+                        cancel()
+                    log.warning(str(exc))
+                    return
                 log.exception("通用服务器重试监控线程处理异常")
 
 

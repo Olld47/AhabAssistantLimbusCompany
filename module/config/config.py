@@ -120,6 +120,11 @@ class Config(metaclass=SingletonMeta):
                 loaded_config["win_input_type"] = "background"
             else:
                 loaded_config["win_input_type"] = "foreground"
+        if sys.platform == "darwin":
+            # macOS 只支持 CrossOver 前台/后台两档；从 Windows 迁移来的
+            # "window_move" 没有等价实现，归一到后台模式，避免启动即报错。
+            if loaded_config.get("win_input_type") not in ("foreground", "background"):
+                loaded_config["win_input_type"] = "background" if loaded_config.get("background_click") else "foreground"
         if saved_version < 1772205660:
             # 迁移旧版结束后动作配置，按字段独立迁移，避免覆盖用户已设置的新字段
             # 映射表统一由 module.after_completion_types 维护；config 层只负责迁移与落盘。

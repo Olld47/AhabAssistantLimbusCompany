@@ -1,3 +1,4 @@
+import sys
 from time import sleep
 from typing import TYPE_CHECKING, overload
 
@@ -315,11 +316,135 @@ class Handle:
         self._transparent = transparent
 
 
+class MacHandle:
+    """macOS 兼容层：用 ``module.macos.window`` 提供与 Windows ``Handle`` 相同的接口。
+
+    上层（截图、输入、任务流程）只依赖这些方法，因此在 macOS 上不需要
+    Win32 句柄，也能复用同一套调用代码。
+    """
+
+    _transparent = False
+
+    def __init__(self):
+        self._window_id = 0
+
+    def init_handle(self, *_args, **_kwargs) -> int:
+        from module.macos.window import find_game
+
+        try:
+            info = find_game()
+        except Exception as e:
+            log.debug(f"未找到游戏窗口: {e}")
+            self._window_id = 0
+            return 0
+        self._window_id = int(info["kCGWindowNumber"])
+        return self._window_id
+
+    @property
+    def hwnd(self) -> int:
+        if self._window_id == 0:
+            self.init_handle()
+        return self._window_id
+
+    @property
+    def isTransparent(self) -> bool:
+        return self._transparent
+
+    @property
+    def isMinimized(self) -> bool:
+        # macOS 侧由 find_game 直接拒绝最小化/隐藏的窗口，这里无需再判断。
+        return False
+
+    @property
+    def isActive(self) -> bool:
+        from module.macos.window import find_game
+
+        try:
+            return int(find_game()["kCGWindowNumber"]) == self.hwnd
+        except Exception:
+            return False
+
+    def rect(self, client: bool = False) -> tuple[int, int, int, int]:
+        from module.macos.window import find_game, window
+
+        try:
+            info = find_game()
+        except Exception:
+            return (0, 0, 0, 0)
+        g = window.geometry(info)
+        if client:
+            return g.content_rect
+        return (g.x, g.y, g.x + g.width, g.y + g.height)
+
+    def width(self, client: bool = False) -> int:
+        rect = self.rect(client)
+        return rect[2] - rect[0]
+
+    def height(self, client: bool = False) -> int:
+        rect = self.rect(client)
+        return rect[3] - rect[1]
+
+    @property
+    def monitor_info(self) -> dict:
+        from AppKit import NSScreen
+
+        frame = NSScreen.mainScreen().frame()
+        height = frame.size.height
+        rect = (0, 0, int(frame.size.width), int(height))
+        return {
+            "Monitor": rect,
+            "Work": rect,
+            "Flags": 0,
+            "Device": "macOS",
+        }
+
+    def monitor_size(self, get_work: bool = False) -> tuple[int, int]:
+        info = self.monitor_info
+        rect = info["Work"] if get_work else info["Monitor"]
+        return rect[2] - rect[0], rect[3] - rect[1]
+
+    def setForeground(self) -> None:
+        from module.macos.window import window
+
+        try:
+            window.focus()
+        except Exception as e:
+            log.debug(f"macOS 激活游戏窗口失败: {e}")
+
+    def setMaximized(self, value: bool = True) -> None:
+        # 游戏窗口尺寸由 CrossOver 管理，macOS 侧不做最大化。
+        log.debug("macOS 不支持窗口最大化，已跳过")
+
+    def switchFullScreenMode(self) -> bool:
+        return False
+
+    def restore(self) -> None:
+        self.setForeground()
+
+    def client_to_window(self, x: int, y: int) -> tuple[int, int]:
+        left, top, _, _ = self.rect(True)
+        return x + left, y + top
+
+    def mouse_pos_to_client_mouse(self, x: int, y: int) -> tuple[int, int]:
+        left, top, _, _ = self.rect(True)
+        return x - left, y - top
+
+    def set_window_pos(self, x: int, y: int) -> None:
+        log.debug("macOS 不支持移动窗口位置，已跳过")
+
+    def bring_window_into_view(self, work_area: bool = False) -> None:
+        log.debug("macOS 由 CrossOver 管理窗口位置，跳过移入可见区域")
+
+    def set_window_transparent(self, transparent: bool = True) -> None:
+        self._transparent = False
+
+
 class Screen(metaclass=SingletonMeta):
     def __init__(self, title: str, game: "Game"):
         self.title = title
         self.game = game
-        self.handle = Handle()
+        # macOS 走 module.macos.window 的窗口门面，Windows 用 Win32 句柄。
+        self.handle = MacHandle() if sys.platform == "darwin" else Handle()
 
     def init_handle(self) -> bool:
         try:

@@ -236,11 +236,24 @@ all_checkbox_config_name = [
     "observe_ego_gift",
 ]
 
+# Windows 保留三档原有操控方式；macOS 只有 CrossOver 前台/后台两档。
 win_input_type_options = {
     QT_TRANSLATE_NOOP("ComboBoxSettingCard", "前台模式 (pyautogui)"): "foreground",
     QT_TRANSLATE_NOOP("ComboBoxSettingCard", "后台模式 (默认) (pywin32)"): "background",
     QT_TRANSLATE_NOOP("ComboBoxSettingCard", "后台增强 (pywin32+set_window_pos)"): "window_move",
 }
+
+macos_win_input_type_options = {
+    "macOS 前台模式（占用鼠标键盘）": "foreground",
+    "CrossOver 后台模式（不占用鼠标键盘）": "background",
+}
+
+
+def get_win_input_type_options() -> dict:
+    """按当前平台返回可选的操控方式。"""
+    import sys
+
+    return macos_win_input_type_options if sys.platform == "darwin" else win_input_type_options
 
 
 class AnnouncementStatus(Enum):

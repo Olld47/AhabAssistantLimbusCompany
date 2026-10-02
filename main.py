@@ -80,6 +80,13 @@ from app.language_manager import LanguageManager
 from app.my_app import MainWindow
 from module.config import cfg
 
+# macOS：把平台不变量（模拟器、窗口管理、自动更新等）应用到配置，
+# 避免沿用 Windows 迁移过来的设置；CrossOver 操控方式仍由 win_input_type 决定。
+if sys.platform == "darwin":
+    from module.macos.bootstrap import apply_mac_configuration
+
+    apply_mac_configuration(cfg)
+
 # 获取管理员权限（仅 Windows；macOS 桌面应用通常不需要提权，pyuac 依赖 pywin32 也无法在 mac 导入）
 if sys.platform == "win32":
     import pyuac

@@ -1,4 +1,5 @@
 import heapq
+import sys
 import time
 from enum import Enum
 from time import sleep
@@ -8,12 +9,39 @@ import cv2
 from module.automation import auto
 from module.config import cfg
 from module.logger import log
-from module.my_error.my_error import InputAttributeError
+from module.my_error.my_error import InputAttributeError, userStopError
 from tasks.base.retry import retry
+
+
+def _macos_background() -> bool:
+    """macOS + CrossOver 后台模式：方向键偶尔会被游戏吞掉，需要点击兜底。"""
+    if sys.platform != "darwin":
+        return False
+    try:
+        return bool(cfg.get_value("background_click", False))
+    except AttributeError:
+        # 配置尚未初始化（例如离线脚本或单测）时按前台处理。
+        return False
+
+
 
 # 道路网格参数基于 2560×1440 游戏截图标定。
 ROAD_COLUMN_GAP = 520
 ROAD_ROW_GAP = 437
+
+# 奖励图标或顶部资源栏会遮住巴士的一部分（实测匹配度 0.80–0.81），
+# 寻路时用更宽松的阈值；地图上其他位置最高 0.70，其他画面最高 0.75。
+MAP_BUS_THRESHOLD = 0.80
+
+
+def find_map_bus(take_screenshot=False):
+    """寻路时定位巴士：放宽阈值并兼容 Retina 渲染差异。"""
+    return auto.find_element(
+        "mirror/mybus_default_distance.png",
+        take_screenshot=take_screenshot,
+        model="retina",
+        threshold=MAP_BUS_THRESHOLD,
+    )
 
 
 class MirrorMap:
@@ -28,6 +56,9 @@ class MirrorMap:
         if len(self.floor_map) > 0:
             next_step = self.floor_map.pop(0)
             if next_step is not None:
+                if _macos_background():
+                    # macOS 后台：先用巴士旁箭头核对缓存方向，避免盲走。
+                    return self._checked_step(next_step)
                 return next_step
             else:
                 re_identify = True
@@ -43,6 +74,10 @@ class MirrorMap:
             if self.floor_map is False:
                 self.floor_map = []
                 return False
+            if not self.floor_map and _macos_background():
+                # 规划不出完整路线时，沿已确认的巴士箭头走一步，到下一个节点再规划。
+                log.debug("原版路线规划失败，改用巴士箭头确认下一步")
+                self.floor_map, self.floor_nodes = search_road_visible()
             if not isinstance(self.floor_map, list):
                 self.floor_map = list(self.floor_map)
             self.map[f"floor{self.floor}"] = [self.floor_map[:], self.floor_nodes[:]]
@@ -53,8 +88,23 @@ class MirrorMap:
         else:
             return False
 
+    def _checked_step(self, step):
+        """按缓存方向走之前，先用巴士旁箭头核对；核对过程不拖动地图。"""
+        choices = visible_choices()
+        if not choices:
+            log.debug(f"无法用箭头核对缓存路线 {step}，重新规划")
+            self.floor_map = []
+            return self.get_next_step()
+        directions = [direction for _, direction, _ in choices]
+        if step in directions:
+            return step
+        # 缓存路线猜过了可见地图：先走当前最优的真实箭头，到下一个节点再规划。
+        log.debug(f"缓存路线 {step} 与实际箭头 {directions} 不符，改走 {choices[0][1]}")
+        self.floor_map = []
+        return choices[0][1]
+
     def enter_next_node(self, next_step):
-        if cfg.mirror_keyboard_navigation and auto.supports_key("up"):
+        if cfg.mirror_keyboard_navigation and auto.supports_key("up") or _macos_background():
             log.debug(f"通过键盘按键寻路: {next_step}")
             if next_step == "U":
                 auto.key_press("up")
@@ -63,7 +113,23 @@ class MirrorMap:
             elif next_step == "M":
                 auto.key_press("right")
             sleep(1)
-            return _keyboard_enter_succeeded()
+            if _keyboard_enter_succeeded():
+                return True
+            if not _macos_background():
+                return False
+            # macOS 后台：游戏偶尔会吞掉方向键或只移动视角，先多等一会儿，
+            # 再直接后台点击目标节点兜底。
+            sleep(1.5)
+            if _keyboard_enter_succeeded():
+                return True
+            if next_position := self._get_next_position(next_step):
+                log.debug(f"方向键未选中节点，改为后台点击节点 {next_step}")
+                auto.mouse_click(next_position[0], next_position[1])
+                sleep(1.25)
+                if _keyboard_enter_succeeded():
+                    return True
+            log.debug(f"方向键和点击都未能进入节点 {next_step}")
+            return False
         if cfg.mirror_keyboard_navigation:
             # 该设备送不进方向键，_get_next_position 同样按 U/D/M 取点，直接走下面的点击寻路
             _warn_keyboardless_once()
@@ -233,7 +299,7 @@ def search_road_default_distance():
             if 600 * scale < bus_position[1] < 700 * scale:
                 break
             dy = 650 * scale - bus_position[1]
-            auto.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=0, dy=dy)
+            auto.mouse_drag_map(bus_position[0], bus_position[1], drag_time=1.5, dx=0, dy=dy)
             sleep(1)
             auto.mouse_to_blank()
 
@@ -296,6 +362,57 @@ def search_road_farthest_distance():
     return False
 
 
+def search_road_visible():
+    """沿巴士旁已确认的箭头走一步（macOS 后台寻路用）。"""
+    if find_map_bus(take_screenshot=True) is None:
+        raise userStopError("当前画面未识别到巴士，后台寻路已停止；请将巴士置于可见区域")
+    choices = visible_choices()
+    if not choices:
+        raise userStopError("未确认巴士旁的可走箭头，后台寻路已停止")
+    _, direction, node_class = choices[0]
+    log.debug(f"后台箭头寻路: {direction}, 节点: {node_class}, 可走方向: {[c[1] for c in choices]}")
+    return [direction], [node_class]
+
+
+def visible_choices():
+    """巴士旁可走的箭头，最优在前；看不到巴士或箭头时返回空列表。
+
+    只有实际存在的道路箭头才算可达，节点类别只用于排序。
+    """
+    bus = find_map_bus(take_screenshot=True)
+    if bus is None:
+        return []
+    scale = cfg.set_win_size / 1440
+    x_gap, y_gap = ROAD_COLUMN_GAP * scale, ROAD_ROW_GAP * scale
+    # 只探测三个出向箭头区域，即使目标图标被 HUD 裁掉；坐标本身不代表有路。
+    candidates = [
+        ["unknown", (bus[0] + x_gap, bus[1] - row.value * y_gap)]
+        for row in (Row.TOP, Row.MID, Row.BOTTOM)
+    ]
+    connections = identify_road(bus, [candidates], Row.MID)
+    if not connections:
+        return []
+    nodes = identify_nodes(bus[0]) or []
+    choices = []
+    for _, _, row in connections:
+        target = (bus[0] + x_gap, bus[1] - row.value * y_gap)
+        matches = [
+            node
+            for node in nodes
+            if abs(node[1][0] - target[0]) < x_gap / 4 and abs(node[1][1] - target[1]) < y_gap / 4
+        ]
+        node_class = (
+            min(matches, key=lambda node: abs(node[1][0] - target[0]) + abs(node[1][1] - target[1]))[0]
+            if matches
+            else "unknown"
+        )
+        direction = {Row.TOP: "U", Row.MID: "M", Row.BOTTOM: "D"}[row]
+        # 未分类节点同样可达，但已知类别优先。
+        priority = (node_class not in all_node_weight, all_node_weight.get(node_class, 0))
+        choices.append((priority, direction, node_class))
+    return sorted(choices, key=lambda choice: choice[0])
+
+
 def search_road_from_road_map(hard_mode=False):
     start_time = time.time()
     scale = cfg.set_win_size / 1440
@@ -306,7 +423,8 @@ def search_road_from_road_map(hard_mode=False):
         if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
             return True, True
 
-    if bus_position := auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True):
+    initial_bus = find_map_bus(take_screenshot=True)
+    if bus_position := initial_bus:
         from tasks.base.retry import check_times
 
         change_times = 5
@@ -323,7 +441,7 @@ def search_road_from_road_map(hard_mode=False):
                 break
             dx = 80 * scale - bus_position[0]
             dy = 690 * scale - bus_position[1]
-            auto.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=dx, dy=dy)
+            auto.mouse_drag_map(bus_position[0], bus_position[1], drag_time=1.5, dx=dx, dy=dy)
             sleep(0.5)
             auto.mouse_to_blank()
 
@@ -335,7 +453,12 @@ def search_road_from_road_map(hard_mode=False):
                 bus = bus_position
                 break
 
-    bus_pos = auto.find_element("mirror/mybus_default_distance.png") or bus
+    bus_pos = find_map_bus() or bus
+    if initial_bus is None:
+        # 还没拖动就没认出巴士：这不是「规划失败」，继续盲走只会误点。
+        raise userStopError("地图上未识别到巴士，已停止寻路；请确认处于镜牢地图、默认缩放且巴士在画面内")
+    if bus is None or bus_pos is None:
+        raise userStopError("地图拖动后未识别到巴士，已停止寻路；请将巴士移回画面后重试")
     all_nodes = identify_nodes(bus[0])
     if not all_nodes:  # identify_nodes() 可能返回 None（如只剩得分低于阈值的 Boss 节点）
         log.warning("未识别到地图节点，无法规划路线")
@@ -350,7 +473,9 @@ def search_road_from_road_map(hard_mode=False):
         else:
             reset_position = "Top"
             bus_row = Row.TOP
-    elif len(y_area) == 1:
+    elif len(y_area) == 1 and not _macos_background():
+        # macOS 后台不走此分支：同一行的节点同样完整规划并缓存，
+        # 避免每过一个节点都要重新拖动地图。
         nodes_column = divide_the_area_by_x(all_nodes)
         connections = identify_road(bus, nodes_column[:1], bus_row)
         # 没有 Bus 到首列的连线时，无法推导下一步方向。
@@ -384,7 +509,7 @@ def search_road_from_road_map(hard_mode=False):
                     break
                 dx = 550 * scale - bus_position[0]
                 dy = set_y_position - bus_position[1]
-                auto.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=dx, dy=dy)
+                auto.mouse_drag_map(bus_position[0], bus_position[1], drag_time=1.5, dx=dx, dy=dy)
                 sleep(0.5)
                 auto.mouse_to_blank()
 

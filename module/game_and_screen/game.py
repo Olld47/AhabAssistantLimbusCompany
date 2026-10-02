@@ -1,4 +1,5 @@
 import os
+import sys
 import webbrowser
 from time import sleep, time
 
@@ -19,6 +20,15 @@ class Game(metaclass=SingletonMeta):
         self.check_in_short_time = 0
 
     def check_game_alive(self):
+        if sys.platform == "darwin":
+            # macOS：CrossOver 里的游戏由用户通过 Steam 启动，只检查窗口是否存在。
+            from module.macos.window import find_game
+
+            try:
+                find_game()
+                return True
+            except Exception:
+                return False
         for proc in psutil.process_iter(["name"]):
             try:
                 # 获取进程的可执行文件名（如 "notepad.exe"）
@@ -34,6 +44,11 @@ class Game(metaclass=SingletonMeta):
 
     def start_game(self) -> bool:
         """启动游戏"""
+        if sys.platform == "darwin":
+            # macOS 不代为启动游戏：请先用 CrossOver 打开 Steam 并启动游戏。
+            # 返回 True 让上层继续等待窗口，而不是尝试 webbrowser/os.startfile。
+            return self.check_game_alive()
+
         if self.check_game_alive():
             if self.last_check_time is None or time() - self.last_check_time > 60:
                 self.last_check_time = time()

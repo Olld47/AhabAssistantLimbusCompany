@@ -1,4 +1,5 @@
 import datetime
+import sys
 
 from PySide6.QtCore import QT_TRANSLATE_NOOP, QPoint, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
@@ -20,7 +21,7 @@ from qfluentwidgets import (
 )
 from qfluentwidgets import FluentIcon as FIF
 
-from app import win_input_type_options
+from app import get_win_input_type_options
 from app.base_combination import (
     BasePrimaryPushSettingCard,
     BasePushSettingCard,
@@ -153,8 +154,14 @@ class SettingInterface(QWidget):
             "win_input_type",
             FIF.CONNECT,
             QT_TRANSLATE_NOOP("ComboBoxSettingCard", "操控方式"),
-            "  ",
-            texts=win_input_type_options,
+            # macOS 补充 CrossOver 的限制说明，Windows 保持原有说明文案。
+            (
+                "后台模式允许遮挡游戏窗口，但不能最小化或移动、缩放窗口。"
+                "镜牢自动使用方向键，按可见路线逐步寻路，不拖动地图；不支持后台滚轮。更改后下次开始任务生效。"
+                if sys.platform == "darwin"
+                else "  "
+            ),
+            texts=get_win_input_type_options(),
             parent=self.game_setting_group,
         )
         self.memory_protection = SwitchSettingCard(

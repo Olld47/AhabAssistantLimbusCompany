@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QStackedWidget,
     QSystemTrayIcon,
     QVBoxLayout,
@@ -101,7 +102,10 @@ class MainWindow(FramelessWindow):
 
         self.setTitleBar(StandardTitleBar(self))
         self.setWindowIcon(QIcon("./assets/logo/my_icon_256X256.ico"))
-        self.setWindowTitle(f"Ahab Assistant Limbus Company - {cfg.version}")
+        if sys.platform == "darwin":
+            self.setWindowTitle(f"AALC Mac · {cfg.version}")
+        else:
+            self.setWindowTitle(f"Ahab Assistant Limbus Company - {cfg.version}")
         self.setObjectName("MainWindow")
         setThemeColor("#9c080b")
         LanguageManager().register_component(self)
@@ -187,6 +191,11 @@ class MainWindow(FramelessWindow):
         # self.addSubInterface(self.team_setting, 'team_setting', '队伍设置')
 
         self.HBoxLayout.addWidget(self.pivot)
+        if sys.platform == "darwin":
+            # macOS 专属：权限检查与游戏画面检测，不影响 Windows 界面。
+            self.mac_status_button = QPushButton("权限与游戏检测", self)
+            self.mac_status_button.clicked.connect(self.show_mac_status)
+            self.HBoxLayout.addWidget(self.mac_status_button)
         self.vBoxLayout.addSpacing(10)
         self.vBoxLayout.addLayout(self.HBoxLayout, 0)
         self.vBoxLayout.addWidget(self.stackedWidget)
@@ -246,6 +255,16 @@ class MainWindow(FramelessWindow):
                 log.warning("计算得到的缩放因子大于最高预设值，调整为200%")
             cfg.set_value("zoom_scale", scale_factor)
 
+    def show_mac_status(self):
+        """macOS：打开权限与游戏画面检测对话框。"""
+        if self._has_running_script():
+            self.show_warning("请先停止任务，再检测游戏画面")
+            return
+        from app.macos_status import MacStatusDialog
+
+        self.mac_status_dialog = MacStatusDialog(self)
+        self.mac_status_dialog.show()
+
     def init_system_tray(self):
         """初始化系统托盘图标与点击事件。"""
         # 创建系统托盘对象，并绑定主窗口的激活处理逻辑。
@@ -253,7 +272,15 @@ class MainWindow(FramelessWindow):
         self.tray_icon = QSystemTrayIcon(self)
         self.tray_icon.setIcon(QIcon("./assets/logo/my_icon_256X256.ico"))
         self.tray_icon.activated.connect(self.on_tray_icon_activated)
+        # macOS 没有 WinRT toast，桌面通知统一走托盘气泡（Windows 也可作为兜底）。
+        mediator.desktop_notification.connect(self._show_desktop_notification)
         self.tray_icon.show()
+
+    def _show_desktop_notification(self, title: str, message: str) -> None:
+        """把 mediator 的桌面通知显示为系统通知气泡。"""
+        if not hasattr(self, "tray_icon"):
+            return
+        self.tray_icon.showMessage(title, message, QSystemTrayIcon.Information, 5000)
 
     def _continue_main_startup_sequence(self, argv: list[str]) -> None:
         """

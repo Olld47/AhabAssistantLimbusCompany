@@ -252,6 +252,23 @@ def _test_template_toast(title, msg, app_id, on_activated):
     toaster.show_toast(toast)
 
 
+def _send_macos_toast(title: str, msg: str | list[str], on_activated: Callable | None = None) -> bool:
+    """macOS 通知：通过 mediator 交给主窗口，由托盘图标显示系统通知。
+
+    ``on_activated`` 在 macOS 上无法从系统通知回传点击事件，因此忽略。
+    """
+    message = "\n".join(msg) if isinstance(msg, list) else str(msg)
+    log.info(f"{title}: {message}")
+    try:
+        from app import mediator
+
+        mediator.desktop_notification.emit(title, message)
+    except Exception as e:
+        log.debug(f"发送 macOS 通知失败: {type(e)}: {e}")
+        return False
+    return True
+
+
 def send_toast(
     title: str,
     msg: str | list[str],
@@ -277,6 +294,14 @@ def send_toast(
     """
     if IMPORT_SUCCESS is False:
         return True
+    if sys.platform == "darwin":
+        # macOS 没有 WinRT toast：翻译后交给主窗口的托盘气泡/系统通知。
+        title = QApplication.translate("WindowsToast", title)
+        if isinstance(msg, str):
+            msg = QApplication.translate("WindowsToast", msg)
+        else:
+            msg = [QApplication.translate("WindowsToast", content) for content in msg]
+        return _send_macos_toast(title, msg, on_activated)
     if template is not TemplateToast.NoneTemplate:
         title = QApplication.translate("WindowsToast", title)
         if isinstance(msg, str):

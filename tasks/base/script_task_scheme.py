@@ -1,5 +1,6 @@
 import platform
 import random
+import sys
 from datetime import datetime
 from threading import Event
 from time import sleep, time
@@ -97,6 +98,35 @@ def onetime_mir_process(team_setting: TeamSetting, team_num: int):
         cfg.set_value("hard_mirror_chance", 3)
 
     # 进行一次镜牢
+    if sys.platform == "darwin":
+        # macOS：游戏在 CrossOver(DXVK) 下偶尔冻住后自行退出，这里自动重启并继续本次镜牢。
+        from module.macos.recovery import GameWindowLost, game_recovery
+
+        after_restart = False
+        while True:
+            try:
+                if after_restart:
+                    init_game()
+                    game_recovery.finish()
+                    back_init_menu()
+                    after_restart = False
+                mirror_adventure = Mirror(team_setting, team_num)
+                if mirror_adventure.run():
+                    del mirror_adventure
+                    mirror_adventure = None
+                    back_init_menu()
+                    make_enkephalin_module()
+                    return True
+                return False
+            except GameWindowLost:
+                game_recovery.recover()
+                after_restart = True
+            except userStopError:
+                raise
+            except Exception as e:
+                log.exception(f"镜牢行动出错: {e}")
+                return False
+
     try:
         mirror_adventure = Mirror(team_setting, team_num)
         if mirror_adventure.run():
@@ -195,6 +225,12 @@ def init_game():
             sleep(10)
         if cfg.set_windows:
             screen.set_win()
+        if sys.platform == "darwin":
+            # macOS：窗口尺寸由 CrossOver 管理，不自动调整；只提示当前操控方式。
+            if cfg.get_value("win_input_type", "foreground") == "background":
+                log.info("CrossOver 后台模式：可使用其他应用；请勿最小化、移动或缩放游戏窗口")
+            else:
+                log.info("macOS 前台模式：保持游戏可见，挂机期间请勿操作鼠标键盘")
 
 
 def _warn_if_game_monitor_hdr_enabled() -> None:

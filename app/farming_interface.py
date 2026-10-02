@@ -399,6 +399,13 @@ class FarmingInterface(QWidget):
         global_hotkeys.stop()
 
     def _listener_start(self):
+        if sys.platform == "darwin":
+            # macOS 全局快捷键需要「辅助功能」授权，未授权时 pynput 会静默失败。
+            from module.macos.window import permissions
+
+            if not permissions()["accessibility"]:
+                log.warning("辅助功能权限未开启；授权并重启后才能使用全局快捷键")
+                return
         global_hotkeys.start()
 
     def my_stop_shortcut(self):
@@ -504,7 +511,9 @@ class FarmingInterfaceLeft(QWidget):
         self.pause_resume_button.button.setFont(font)
 
     def __init_layout(self):
-        self.setting_options.addWidget(self.set_windows)
+        # macOS 的窗口尺寸/位置由 CrossOver 管理，「窗口设置」任务不适用。
+        if sys.platform != "darwin":
+            self.setting_options.addWidget(self.set_windows)
         self.setting_options.addWidget(self.daily_task)
         self.setting_options.addWidget(self.get_reward)
         self.setting_options.addWidget(self.buy_enkephalin)

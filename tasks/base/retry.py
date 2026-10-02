@@ -1,5 +1,6 @@
 import os
 import platform
+import sys
 import time
 from time import sleep
 
@@ -15,6 +16,7 @@ from module.automation.input_handlers.macos.playcover_control import PLAYCOVER_S
 from module.config import cfg
 from module.game_and_screen import screen
 from module.logger import log
+from module.my_error.my_error import userStopError
 from utils.utils import check_game_running
 
 _last_title_screen_tap_time = 0.0
@@ -111,6 +113,10 @@ def kill_game():
             return
         connection_device.close_current_app()
         return
+    if sys.platform == "darwin":
+        # macOS 不强制结束游戏：CrossOver 容器里的进程无法安全按 PID 结束，
+        # 且镜牢流程已有崩溃恢复逻辑，这里直接停止并提示用户。
+        raise userStopError("游戏无响应，已停止任务。请检查游戏后重新开始；Mac 版不会自动强制重启游戏。")
     if platform.system() == "Windows":
         from module.game_and_screen import screen
 

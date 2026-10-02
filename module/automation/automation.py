@@ -2,6 +2,7 @@ import gc
 import inspect
 import math
 import random
+import sys
 import threading
 import time
 from ast import List
@@ -20,6 +21,7 @@ from utils.singletonmeta import SingletonMeta
 from ..config import cfg
 from ..logger import log
 from ..ocr import ocr
+from module.my_error.my_error import userStopError
 from .input_handlers.input import AbstractInput
 from .input_handlers.macos.playcover_control import PLAYCOVER_SIMULATOR_TYPE
 from .screenshot import ScreenShot
@@ -83,6 +85,25 @@ class Automation(metaclass=SingletonMeta):
 
                 log.debug("使用基于PyMiniTouch的通用模拟器输入模块")
                 self.input_handler = SimulatorControl.connection_device
+        elif sys.platform == "darwin":
+            # macOS 桌面版：CrossOver 里的游戏，前台占用真实鼠标键盘，后台定向投递事件。
+            from module.macos.window import window
+
+            input_type = cfg.get_value("win_input_type", "foreground")
+            if input_type not in ("foreground", "background"):
+                raise ValueError(f"不支持的 macOS 操控方式：{input_type}")
+            window.background = input_type == "background"
+            cfg.unsaved_set_value("background_click", window.background)
+            if window.background:
+                from .input_handlers.macos.background_input import BackgroundInput
+
+                log.debug("使用 CrossOver 后台点击模块")
+                self.input_handler = BackgroundInput()
+            else:
+                from .input_handlers.macos.foreground_input import Input
+
+                log.debug("使用 macOS 前台点击模块")
+                self.input_handler = Input()
         else:
             input_type = cfg.win_input_type
             if input_type == "background":
@@ -101,7 +122,10 @@ class Automation(metaclass=SingletonMeta):
                 log.debug("使用基于窗口移动的后台点击模块")
                 self.input_handler = WindowMoveInput()
         if self.input_handler is None:
-            from .input_handlers.input import BackgroundInput
+            if sys.platform == "darwin":
+                from .input_handlers.macos.background_input import BackgroundInput
+            else:
+                from .input_handlers.input import BackgroundInput
 
             self.input_handler = BackgroundInput()
         assert isinstance(self.input_handler, AbstractInput), "输入处理器必须是AbstractInput的实例"
@@ -111,6 +135,7 @@ class Automation(metaclass=SingletonMeta):
         self.mouse_click = self.input_handler.mouse_click
         self.mouse_click_blank = self.input_handler.mouse_click_blank
         self.mouse_drag = self.input_handler.mouse_drag
+        self.mouse_drag_map = self.input_handler.mouse_drag_map
         self.mouse_swipe_for_scroll = self.input_handler.mouse_swipe_for_scroll
         self.mouse_drag_down = self.input_handler.mouse_drag_down
         self.mouse_scroll = self.input_handler.mouse_scroll
@@ -390,10 +415,16 @@ class Automation(metaclass=SingletonMeta):
                     return result
                 else:
                     return None
+            except userStopError:
+                raise
             except Exception as e:
                 log.error(f"截图失败:{e}")
             time.sleep(1)
             if time.time() - start_time > 60:
+                if sys.platform == "darwin":
+                    # macOS 不做强制重启：交由用户检查游戏与屏幕录制权限。
+                    log.error("截图超时，停止任务")
+                    raise userStopError("截图超时，请检查游戏窗口和屏幕录制权限")
                 log.error("截图超时，尝试重启游戏")
                 if not cfg.simulator:
                     # 桌面模式：先结束游戏进程（仅 Windows 有窗口句柄/taskkill）
