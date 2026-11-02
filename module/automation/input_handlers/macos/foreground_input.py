@@ -98,6 +98,26 @@ class Input(AbstractInput):
     def mouse_swipe_for_scroll(self, x, y, duration=0.3, dx=0, dy=0, move_back=True):
         self._drag([(x, y), (x + dx, y + dy)], duration, 0, move_back)
 
+    def mouse_swipe_for_team_scroll(self, x, y, duration=0.3, dx=0, dy=0, move_back=True):
+        """滚动编队列表：末端减速并静止，消除松手惯性。
+
+        列表要按行数精确定位队伍。匀速拖到底立刻松手时，Unity 会按松手速度
+        继续惯性滚动，多滚的行数不可控（实测滑一页会滚两页，导致选错队伍）。
+        Windows 版由 ``build_windows_scroll_swipe_plan`` 追加减速段和静止段；
+        这里用同样的收尾方式，让每次滑动的行数可重复。
+        """
+        from module.automation.input_handlers.scroll_swipe import (
+            WINDOWS_SCROLL_SETTLE_DURATION,
+            build_windows_scroll_swipe_plan,
+        )
+
+        plan, settle_duration = build_windows_scroll_swipe_plan(x, y, dx, dy, duration)
+        # plan 的元素是（坐标, 到达该点前的耗时），首元素是起点。
+        points = [point for point, _ in plan]
+        if len(points) < 2:
+            return
+        self._drag(points, duration, settle_duration or WINDOWS_SCROLL_SETTLE_DURATION, move_back)
+
     def mouse_drag_down(self, x, y, reverse=1, move_back=True):
         self.mouse_drag(x, y, 0.4, dy=300 * reverse, move_back=move_back)
 

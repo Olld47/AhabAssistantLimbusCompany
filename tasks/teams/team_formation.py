@@ -12,7 +12,6 @@ from module.config import cfg
 from module.decorator.decorator import begin_and_finish_time_log
 from module.logger import log
 
-WINDOWS_ORDERED_TEAM_PAGE_SWIPE_DISTANCE = 400
 NAMED_TEAM_PAGE_SWIPE_DISTANCE = 385
 TEAM_LIST_RESET_BOTTOM_MARGIN = 60
 ORDERED_TEAM_PAGE_SIZE = 5
@@ -89,7 +88,13 @@ def team_formation(sinner_team):
 
 def _ordered_team_page_swipe_distance(page_index=None):
     if not cfg.simulator:
-        return WINDOWS_ORDERED_TEAM_PAGE_SWIPE_DISTANCE
+        # 桌面端（Windows / macOS）按行高换算一页的距离。
+        # 固定 400 单位比一页（5 行 = 362.5）多滑约 0.52 行，逐页累积后
+        # 会选中相邻页的队伍（实测目标 #6 选中 #11）。
+        if page_index == ORDERED_TEAM_LAST_PAGE_INDEX:
+            # 末页只要滑到 #35 即可，不扣半行：半行补偿只用于触屏模拟器。
+            return ORDERED_TEAM_LAST_PAGE_SWIPE_DISTANCE + ORDERED_TEAM_BOTTOM_PAGE_OFFSET
+        return ORDERED_TEAM_PAGE_SWIPE_DISTANCE
     simulator_type = getattr(cfg, "simulator_type", 10)
     if simulator_type == 0:
         if page_index == ORDERED_TEAM_LAST_PAGE_INDEX:
@@ -162,7 +167,9 @@ def _ordered_team_location(num):
 
 def _ordered_team_click_offset(page_count, team_order):
     offset = ORDERED_TEAM_ROW_HEIGHT * team_order
-    if page_count == ORDERED_TEAM_LAST_PAGE_INDEX:
+    # 末页的滑动距离已经扣掉半行补偿；这里只在模拟器/触屏场景再加回，
+    # 桌面端两处都加会引入 0.5 行取整抖动（#37/#39 会落到相邻行）。
+    if page_count == ORDERED_TEAM_LAST_PAGE_INDEX and cfg.simulator:
         offset += ORDERED_TEAM_BOTTOM_PAGE_OFFSET
     return offset
 
