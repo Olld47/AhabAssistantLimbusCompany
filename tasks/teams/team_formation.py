@@ -23,6 +23,17 @@ PLAYCOVER_ORDERED_TEAM_PAGE_SWIPE_DISTANCE = 381
 """PlayCover(MaaTools) 触屏拖动的滚动传导约 0.96 且有固定损耗，按 5 行实测补偿的距离。"""
 TEAM_LIST_VIEW_STABLE_THRESHOLD = 2.0
 """列表区域相邻两次下拉的灰度平均差低于该值时，判定已滚到顶部。"""
+
+# 2026-11 实机标定（1920x1080 截图空间，CrossOver 后台模式）：
+# - 行距实测 54.0-54.4px，与 ORDERED_TEAM_ROW_HEIGHT*scale(54.375) 一致；
+# - 列表首行按钮中心在 y=467，而按 identify_assets 推算得到 479.75，
+#   即点击点比真实行中心低约 12.8px（0.23 行），翻页越多越容易点错行；
+# - 拖动距离只有约 0.8-0.9 传导成滚动（请求 5 行实际约 4 行），
+#   因此按行距算出的距离需要放大，才能让"翻一页"真的前进一页。
+ORDERED_TEAM_FIRST_ROW_Y = 467.0
+"""列表第一行按钮中心在 1920x1080 截图中的 y。"""
+ORDERED_TEAM_ROW_SCROLL_GAIN = 0.85
+"""拖动距离传导成滚动的比例（实测 0.8-0.9，取中值偏保守）。"""
 ORDERED_TEAM_LAST_PAGE_INDEX = (ORDERED_TEAM_COUNT - 1) // ORDERED_TEAM_PAGE_SIZE
 ORDERED_TEAM_LAST_PAGE_START = ORDERED_TEAM_COUNT - ORDERED_TEAM_VISIBLE_ROWS + 1
 ORDERED_TEAM_BOTTOM_PAGE_OFFSET = ORDERED_TEAM_ROW_HEIGHT / 2
@@ -88,13 +99,15 @@ def team_formation(sinner_team):
 
 def _ordered_team_page_swipe_distance(page_index=None):
     if not cfg.simulator:
-        # 桌面端（Windows / macOS）按行高换算一页的距离。
-        # 固定 400 单位比一页（5 行 = 362.5）多滑约 0.52 行，逐页累积后
-        # 会选中相邻页的队伍（实测目标 #6 选中 #11）。
+        # 桌面端（Windows / macOS）：按行高换算一页的距离，再按实测传导率放大。
+        # 拖动只有约 0.85 传导成滚动，若直接发"5 行"的距离，实际只前进约 4 行，
+        # 翻页越多偏差越大（实测目标 #6 会落到相邻队伍）。
         if page_index == ORDERED_TEAM_LAST_PAGE_INDEX:
             # 末页只要滑到 #35 即可，不扣半行：半行补偿只用于触屏模拟器。
-            return ORDERED_TEAM_LAST_PAGE_SWIPE_DISTANCE + ORDERED_TEAM_BOTTOM_PAGE_OFFSET
-        return ORDERED_TEAM_PAGE_SWIPE_DISTANCE
+            raw = ORDERED_TEAM_LAST_PAGE_SWIPE_DISTANCE + ORDERED_TEAM_BOTTOM_PAGE_OFFSET
+        else:
+            raw = ORDERED_TEAM_PAGE_SWIPE_DISTANCE
+        return raw / ORDERED_TEAM_ROW_SCROLL_GAIN
     simulator_type = getattr(cfg, "simulator_type", 10)
     if simulator_type == 0:
         if page_index == ORDERED_TEAM_LAST_PAGE_INDEX:
@@ -103,6 +116,19 @@ def _ordered_team_page_swipe_distance(page_index=None):
     if simulator_type == PLAYCOVER_SIMULATOR_TYPE:
         return PLAYCOVER_ORDERED_TEAM_PAGE_SWIPE_DISTANCE
     return SIMULATOR_ORDERED_TEAM_PAGE_SWIPE_DISTANCE
+
+
+def _first_row_y_correction(position, scale):
+    """返回首行点击点需要施加的 y 偏移（内容坐标）。
+
+    代码按 identify_assets 推算出的首行位置（position[1] + 70*scale）比实测的
+    行中心低约 12.8px。这里以 1080p 标定值为准，用当前窗口几何的推算值做差，
+    避免把标定值写死成只对 1080p 有效。
+    """
+    assumed_1080 = 266 + 215 * (1080 / 1440) + 70 * (1080 / 1440)
+    correction_1080 = ORDERED_TEAM_FIRST_ROW_Y - assumed_1080
+    # 标定值基于 1080p 截图坐标；其他窗口尺寸按同一比例缩放。
+    return correction_1080 * (cfg.set_win_size / 1080)
 
 
 def _team_list_reset_swipe_distance(start_y, window_height, scale):
@@ -156,39 +182,6 @@ def _reset_team_list_to_top(my_position, reset_distance, view_bbox):
             break
         previous_view = current_view
     sleep(0.35)
-
-
-def _team_list_snapshot(view_bbox):
-    """截取编队列表区域，用于测量滚动前后位移。"""
-    while auto.take_screenshot() is None:
-        continue
-    return np.asarray(auto.screenshot.convert("L").crop(view_bbox), dtype=np.int16)
-
-
-def _team_list_shift(before, after, row_pixels=None):
-    """用垂直方向最佳对齐位移估计列表滚动了多少行。
-
-    列表整体上下移动，取使两帧差异最小的垂直偏移量即为位移像素。
-    """
-    if before is None or after is None or before.shape != after.shape:
-        return float("nan")
-    height = before.shape[0]
-    best_offset, best_score = 0, None
-    for offset in range(-height // 2, height // 2 + 1, 2):
-        if offset >= 0:
-            a = before[offset:, :]
-            b = after[: height - offset, :]
-        else:
-            a = before[: height + offset, :]
-            b = after[-offset:, :]
-        if a.size == 0:
-            continue
-        score = float(np.abs(a - b).mean())
-        if best_score is None or score < best_score:
-            best_offset, best_score = offset, score
-    if row_pixels:
-        return best_offset / row_pixels
-    return float(best_offset)
 
 
 def _ordered_team_location(num):
@@ -274,13 +267,13 @@ def select_battle_team(num):
             my_position[1], cfg.set_win_size, scale
         )
         _reset_team_list_to_top(my_position, reset_distance, _team_list_view_bbox(position, scale))
-        first_position = [position[0], position[1] + 70 * scale]
+        # 首行点击点：按 identify_assets 推算会落在真实行中心下方约 0.23 行
+        # （实机标定 y=479.75 对应真实中心 467），这里按标定值校正。
+        first_position = [position[0], position[1] + 70 * scale + _first_row_y_correction(position, scale)]
         if cfg.select_team_by_order:
             team_range, team_order = _ordered_team_location(num)
-            view_bbox = _team_list_view_bbox(position, scale)
             for page_index in range(1, team_range + 1):
                 ordered_page_distance = _ordered_team_page_swipe_distance(page_index)
-                before = _team_list_snapshot(view_bbox)
                 auto.mouse_swipe_for_team_scroll(
                     first_position[0],
                     first_position[1] + 375 * scale,
@@ -288,12 +281,6 @@ def select_battle_team(num):
                     duration=0.3,
                 )
                 sleep(1)
-                after = _team_list_snapshot(view_bbox)
-                log.debug(
-                    f"选队翻页 {page_index}/{team_range}: 请求滑动 {ordered_page_distance} "
-                    f"单位({ordered_page_distance / ORDERED_TEAM_ROW_HEIGHT:.2f} 行), "
-                    f"列表位移 {_team_list_shift(before, after, ORDERED_TEAM_ROW_HEIGHT * scale):.2f} 行"
-                )
             auto.mouse_click(
                 first_position[0],
                 first_position[1]

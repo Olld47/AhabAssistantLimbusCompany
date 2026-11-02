@@ -23,9 +23,11 @@ def _selected_team(num: int) -> int:
     row = team_formation.ORDERED_TEAM_ROW_HEIGHT
     page_count, order = team_formation._ordered_team_location(num)
     top = 1.0  # 列表已重置到最顶端，第一行是 1 号队
+    gain = team_formation.ORDERED_TEAM_ROW_SCROLL_GAIN
     with patch.object(cfg, "simulator", False):
         for page_index in range(1, page_count + 1):
-            top += team_formation._ordered_team_page_swipe_distance(page_index) / row
+            # 拖动距离只有 gain 比例传导成滚动（实机标定 0.85）。
+            top += team_formation._ordered_team_page_swipe_distance(page_index) / row * gain
         offset = team_formation._ordered_team_click_offset(page_count, order)
     return round(top + offset / row)
 
@@ -35,27 +37,32 @@ def test_ordered_selection_lands_on_requested_team(num):
     assert _selected_team(num) == num, f"目标 #{num} 实际会选中 #{_selected_team(num)}"
 
 
-def test_desktop_page_swipe_covers_exactly_one_page():
-    """桌面端一页滑动距离必须等于 5 行，否则偏差会逐页累积。"""
+def test_desktop_page_swipe_advances_exactly_one_page():
+    """桌面端一页滑动"实际滚动"必须等于 5 行，否则偏差会逐页累积。
+
+    拖动距离不等于滚动距离：只有 ORDERED_TEAM_ROW_SCROLL_GAIN 的比例传导，
+    所以发出去的拖动距离要按该比例放大。
+    """
     row = team_formation.ORDERED_TEAM_ROW_HEIGHT
     page_size = team_formation.ORDERED_TEAM_PAGE_SIZE
+    gain = team_formation.ORDERED_TEAM_ROW_SCROLL_GAIN
     with patch.object(cfg, "simulator", False):
-        first_page = team_formation._ordered_team_page_swipe_distance(1)
-    assert first_page == pytest.approx(row * page_size)
+        swipe = team_formation._ordered_team_page_swipe_distance(1)
+    assert swipe / row * gain == pytest.approx(page_size)
 
 
 def test_last_page_compensates_half_row_only_once():
     """末页的滑动距离与点击偏移不能各补一次半行。"""
     row = team_formation.ORDERED_TEAM_ROW_HEIGHT
     last_index = team_formation.ORDERED_TEAM_LAST_PAGE_INDEX
+    gain = team_formation.ORDERED_TEAM_ROW_SCROLL_GAIN
     with patch.object(cfg, "simulator", False):
         swipe = team_formation._ordered_team_page_swipe_distance(last_index)
         offset = team_formation._ordered_team_click_offset(last_index, 0)
-    # 滑动到达的位置 + 点击偏移，正好落在末页第一行。
-    assert swipe + offset == pytest.approx(
+    # 末页实际滚动的距离 + 点击偏移，正好落在末页第一行（#35）。
+    assert swipe * gain + offset == pytest.approx(
         team_formation.ORDERED_TEAM_LAST_PAGE_SWIPE_DISTANCE
         + team_formation.ORDERED_TEAM_BOTTOM_PAGE_OFFSET
-        + row * 0
     )
 
 
@@ -100,3 +107,22 @@ def test_background_team_scroll_borrows_the_cursor():
     assert recorded["points"][-1][1] - recorded["points"][0][1] == pytest.approx(-300)
     assert isinstance(recorded["duration"], list)
     assert recorded["settle"] > 0
+
+
+def test_first_row_click_point_matches_measured_center():
+    """首行点击点必须落在实机测得的按钮中心，而不是推算值。
+
+    实机标定（1080p）：按 identify_assets 推算得 y=479.75，而按钮真实中心
+    在 y=467，偏下 12.8px（约 0.23 行）。点偏下会让翻页后的点击落到相邻行。
+    """
+    scale = 1080 / 1440
+    position = [1800 - 2150 * scale, 266 + 215 * scale]
+    with patch.object(cfg, "set_win_size", 1080):
+        correction = team_formation._first_row_y_correction(position, scale)
+    click_y = position[1] + 70 * scale + correction
+    assert click_y == pytest.approx(team_formation.ORDERED_TEAM_FIRST_ROW_Y, abs=0.5)
+
+
+def test_scroll_gain_is_within_measured_range():
+    """传导率必须是实机测得的量级（0.8-0.9），否则翻页会少滚或多滚。"""
+    assert 0.8 <= team_formation.ORDERED_TEAM_ROW_SCROLL_GAIN <= 0.9
