@@ -60,14 +60,10 @@ def test_last_page_compensates_half_row_only_once():
 
 
 def test_team_scroll_goes_through_drag_so_background_mode_works():
-    """列表滚动必须经由 _drag，否则后台模式（定向事件）会失效。
+    """前台列表滚动必须经由 _drag（前台实现里 _drag 才负责按下/释放）。"""
+    from module.automation.input_handlers.macos.foreground_input import Input
 
-    曾经在这里直接调用 pyautogui：后台模式下游戏收不到物理鼠标拖动，
-    列表纹丝不动，目标 #6 最终选中 #1。
-    """
-    from module.automation.input_handlers.macos.background_input import BackgroundInput
-
-    driver = object.__new__(BackgroundInput)  # 不建立真实连接
+    driver = object.__new__(Input)  # 不建立真实连接
     recorded = {}
     driver._drag = lambda points, duration, settle, move_back: recorded.update(
         points=points, duration=duration, settle=settle
@@ -75,10 +71,32 @@ def test_team_scroll_goes_through_drag_so_background_mode_works():
 
     driver.mouse_swipe_for_team_scroll(100, 700, duration=0.3, dy=-300)
 
-    assert recorded, "鼠标滚动必须通过 _drag 执行（后台模式依赖它投递定向事件）"
+    assert recorded, "鼠标滚动必须通过 _drag 执行"
     points = recorded["points"]
     assert points[-1][1] - points[0][1] == pytest.approx(-300)
     # 逐段时长：起步快、末段慢，松手前再静止，避免惯性多滚。
     assert isinstance(recorded["duration"], list)
     assert recorded["duration"][-1] > recorded["duration"][0]
+    assert recorded["settle"] > 0
+
+
+def test_background_team_scroll_borrows_the_cursor():
+    """后台模式列表滚动必须借用真实光标，纯定向事件不会让列表滚动。
+
+    实测日志 "列表位移 -0.02 行"：点击能生效，但纯 PID 拖拽对列表无效，
+    只有把系统光标沿路径移动过去才会真正滚动（与地图相机同理）。
+    """
+    from module.automation.input_handlers.macos.background_input import BackgroundInput
+
+    driver = object.__new__(BackgroundInput)
+    recorded = {}
+    driver._drag_borrowing_cursor = lambda points, duration, settle: recorded.update(
+        points=points, duration=duration, settle=settle
+    )
+
+    driver.mouse_swipe_for_team_scroll(100, 700, duration=0.3, dy=-300)
+
+    assert recorded, "后台列表滚动必须借用光标，否则列表位移为 0"
+    assert recorded["points"][-1][1] - recorded["points"][0][1] == pytest.approx(-300)
+    assert isinstance(recorded["duration"], list)
     assert recorded["settle"] > 0

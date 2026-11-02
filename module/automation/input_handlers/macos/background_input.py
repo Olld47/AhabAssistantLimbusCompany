@@ -113,8 +113,9 @@ class BackgroundInput(Input):
             wait_cancelled(max(0.1, USER_IDLE_SECONDS - idle))
 
     def _drag(self, points, duration, settle, move_back):
-        # Pure background drag. Reliable for battle links and lists; the
-        # mirror map camera needs mouse_drag_map instead.
+        # Pure background drag. Reliable for battle links and list taps, but
+        # scrolling lists and the mirror map camera both need the real cursor
+        # (see mouse_swipe_for_team_scroll / mouse_drag_map).
         from .foreground_input import _segment_durations
 
         target = self._target()
@@ -142,6 +143,28 @@ class BackgroundInput(Input):
             self._mouse(Q.kCGEventLeftMouseUp, point, target, release=True)
             focus_guard.note(target.pid, '拖动')
 
+    def mouse_swipe_for_team_scroll(self, x, y, duration=0.3, dx=0, dy=0, move_back=True):
+        """后台模式滚动编队列表：必须借用真实光标。
+
+        实测：纯 PID 定向事件能让点击生效，但列表滚动位移为 0（日志
+        "列表位移 -0.02 行"）。和地图相机一样，Unity 的滚动/拖拽判定读的是
+        系统真实光标位置，只有把光标沿路径移动过去才会真正滚动。
+        """
+        from module.automation.input_handlers.scroll_swipe import (
+            WINDOWS_SCROLL_SETTLE_DURATION,
+            build_windows_scroll_swipe_plan,
+        )
+
+        plan, settle_duration = build_windows_scroll_swipe_plan(x, y, dx, dy, duration)
+        if len(plan) < 2:
+            return
+        points = [point for point, _ in plan]
+        # 逐段时长：起步快、末段减速，松手前再静止，避免惯性多滚。
+        steps = [max(0.01, step) for _, step in plan[1:]]
+        self._drag_borrowing_cursor(
+            points, steps, settle_duration or WINDOWS_SCROLL_SETTLE_DURATION
+        )
+
     def mouse_drag_map(self, x, y, drag_time=0.1, dx=0, dy=0, move_back=True):
         self._drag_borrowing_cursor([(x, y), (x + dx, y + dy)], drag_time, 0.5)
 
@@ -150,9 +173,12 @@ class BackgroundInput(Input):
         # real system cursor, so a PID-only drag jumps toward the user's
         # pointer. The cursor is borrowed for the drag: hardware motion is
         # decoupled, the cursor is warped along the path, then put back.
+        from .foreground_input import _segment_durations
+
         self._wait_user_idle()
         target = self._target()
         mapped = [target.geometry.to_screen(*_inside(p)) for p in points]
+        steps = _segment_durations(duration, len(mapped) - 1)
         point = mapped[0]
         original = _cursor_location()
         Q.CGAssociateMouseAndMouseCursorPosition(False)
@@ -163,12 +189,12 @@ class BackgroundInput(Input):
             try:
                 # Let Unity process the press before the first drag frame.
                 wait_cancelled(0.05)
-                for start, end in zip(mapped, mapped[1:]):
+                for (start, end), step in zip(zip(mapped, mapped[1:]), steps):
                     started = monotonic()
                     while True:
                         if self.is_pause:
                             raise userStopError('后台拖动已中断并释放鼠标')
-                        progress = min(1, (monotonic() - started) / max(0.05, duration))
+                        progress = min(1, (monotonic() - started) / max(0.02, step))
                         previous = point
                         point = (start[0] + (end[0] - start[0]) * progress,
                                  start[1] + (end[1] - start[1]) * progress)
@@ -191,7 +217,7 @@ class BackgroundInput(Input):
     def mouse_scroll(self, direction=-3):
         # CrossOver does not reliably deliver background wheel events to Unity.
         # The existing task engine skips wheel-based map zoom in this mode;
-        # lists use mouse_swipe_for_scroll instead.
+        # lists scroll via mouse_swipe_for_team_scroll (which borrows the cursor).
         self._target()
         return False
 
