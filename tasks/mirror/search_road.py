@@ -9,7 +9,7 @@ import cv2
 from module.automation import auto
 from module.config import cfg
 from module.logger import log
-from module.my_error.my_error import InputAttributeError, userStopError
+from module.my_error.my_error import InputAttributeError
 from tasks.base.retry import retry
 
 
@@ -51,12 +51,12 @@ class MirrorMap:
         self.map = {}
         self.hard_mode = hard_mode
 
-    def get_next_step(self):
+    def get_next_step(self, _skip_check=False):
         re_identify = False
         if len(self.floor_map) > 0:
             next_step = self.floor_map.pop(0)
             if next_step is not None:
-                if _macos_background():
+                if _macos_background() and not _skip_check:
                     # macOS 后台：先用巴士旁箭头核对缓存方向，避免盲走。
                     return self._checked_step(next_step)
                 return next_step
@@ -88,13 +88,16 @@ class MirrorMap:
         else:
             return False
 
-    def _checked_step(self, step):
+    def _checked_step(self, step, _depth=0):
         """按缓存方向走之前，先用巴士旁箭头核对；核对过程不拖动地图。"""
         choices = visible_choices()
         if not choices:
             log.debug(f"无法用箭头核对缓存路线 {step}，重新规划")
             self.floor_map = []
-            return self.get_next_step()
+            # 重新规划后不再核对，避免"核对失败→重规划→又核对"的递归。
+            if _depth >= 1:
+                return False
+            return self.get_next_step(_skip_check=True)
         directions = [direction for _, direction, _ in choices]
         if step in directions:
             return step
@@ -363,12 +366,19 @@ def search_road_farthest_distance():
 
 
 def search_road_visible():
-    """沿巴士旁已确认的箭头走一步（macOS 后台寻路用）。"""
+    """沿巴士旁已确认的箭头走一步（macOS 后台寻路用）。
+
+    认不到巴士或箭头时返回空路线，由上层重新截图/拖动后再试；
+    不在这里终止任务——巴士偶尔被奖励图标或弹窗遮住是正常现象，
+    直接抛错会让整次挂机无声结束。
+    """
     if find_map_bus(take_screenshot=True) is None:
-        raise userStopError("当前画面未识别到巴士，后台寻路已停止；请将巴士置于可见区域")
+        log.debug("后台箭头寻路：当前画面未识别到巴士，返回空路线等待重试")
+        return [], []
     choices = visible_choices()
     if not choices:
-        raise userStopError("未确认巴士旁的可走箭头，后台寻路已停止")
+        log.debug("后台箭头寻路：未确认巴士旁的可走箭头，返回空路线等待重试")
+        return [], []
     _, direction, node_class = choices[0]
     log.debug(f"后台箭头寻路: {direction}, 节点: {node_class}, 可走方向: {[c[1] for c in choices]}")
     return [direction], [node_class]
@@ -455,10 +465,13 @@ def search_road_from_road_map(hard_mode=False):
 
     bus_pos = find_map_bus() or bus
     if initial_bus is None:
-        # 还没拖动就没认出巴士：这不是「规划失败」，继续盲走只会误点。
-        raise userStopError("地图上未识别到巴士，已停止寻路；请确认处于镜牢地图、默认缩放且巴士在画面内")
+        # 还没拖动就没认出巴士：返回空路线，由上层重新截图后再试。
+        # 直接抛错会让整次挂机无声结束（巴士被图标/弹窗遮住是常见情况）。
+        log.debug("地图上未识别到巴士，本轮不规划路线")
+        return [], []
     if bus is None or bus_pos is None:
-        raise userStopError("地图拖动后未识别到巴士，已停止寻路；请将巴士移回画面后重试")
+        log.debug("地图拖动后未识别到巴士，本轮不规划路线")
+        return [], []
     all_nodes = identify_nodes(bus[0])
     if not all_nodes:  # identify_nodes() 可能返回 None（如只剩得分低于阈值的 Boss 节点）
         log.warning("未识别到地图节点，无法规划路线")

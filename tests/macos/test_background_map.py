@@ -49,11 +49,14 @@ def test_visible_route_uses_connected_nodes_and_returns_only_next_step():
     assert classes == ['event']
 
 
-def test_missing_bus_stops_without_blind_drag():
+def test_missing_bus_returns_empty_route_without_blind_drag():
+    """认不到巴士时返回空路线（不抛异常、不盲拖），由上层重试。
+
+    抛 userStopError 会被顶层静默吞掉，导致刷牢中途无声退出。
+    """
     with patch.object(road, 'find_map_bus', return_value=None), \
          patch.object(auto, 'mouse_drag_map', side_effect=AssertionError('blind drag')):
-        with pytest.raises(userStopError, match='巴士'):
-            road.search_road_visible()
+        assert road.search_road_visible() == ([], [])
 
 
 @pytest.mark.parametrize('nodes', [None, [['battle', (1466, 111)]]])
@@ -75,8 +78,8 @@ def test_classified_nodes_without_outgoing_arrow_are_not_walkable():
     with patch.object(road, 'find_map_bus', return_value=(704,396)), \
          patch.object(road, 'identify_nodes', return_value=[['shop', (1085, 109)]]), \
          patch.object(road, 'identify_road', return_value=[]):
-        with pytest.raises(userStopError):
-            road.search_road_visible()
+        # 没有出向箭头就不走，同样返回空路线等待重试。
+        assert road.search_road_visible() == ([], [])
 
 
 def test_background_map_plans_full_route_once_and_uses_native_keys():
@@ -162,12 +165,11 @@ def test_foreground_follows_cache_without_arrow_checks():
         assert mirror_map.get_next_step() == 'U'
 
 
-def test_missing_bus_before_any_drag_reports_that_no_drag_happened():
+def test_missing_bus_before_any_drag_returns_empty_route():
     with patch.object(auto, 'click_element', return_value=False), \
          patch.object(road, 'find_map_bus', return_value=None), \
          patch.object(auto, 'mouse_drag_map', side_effect=AssertionError('must not drag')):
-        with pytest.raises(userStopError, match='地图上未识别到巴士'):
-            road.search_road_from_road_map()
+        assert road.search_road_from_road_map() == ([], [])
 
 
 def _plan_single_row(background_click):

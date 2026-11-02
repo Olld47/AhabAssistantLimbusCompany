@@ -688,11 +688,37 @@ class FarmingInterfaceLeft(QWidget):
     def _on_script_finished(self):
         # 自然结束只做 UI 收尾；不要复用“手动停止”入口，否则会重复触发窗口清理。
         log.debug("脚本自然结束，执行 UI 收尾，不再重复重置游戏窗口")
+        self._report_script_exception()
         self.link_start_button.set_text("Link Start!")
         self._enable_setting(self.parent())
         self.reset_pause_resume_button()
         mediator.refresh_teams_order.emit()
         mediator.mirror_bar_kill_signal.emit()
+
+    def _report_script_exception(self) -> None:
+        """任务因异常中止时告知用户原因。
+
+        线程把异常存进 ``my_script.exception``，此前没有任何地方读取它，
+        于是刷牢中途停止时界面上什么提示都没有，日志里也只有 DEBUG 行。
+        """
+        script = getattr(self, "my_script", None)
+        exc = getattr(script, "exception", None)
+        if exc is None:
+            return
+        message = str(exc) or type(exc).__name__
+        log.warning(f"脚本因异常结束: {message}")
+        from app.card.messagebox_custom import BaseInfoBar
+        from qfluentwidgets import InfoBarPosition
+
+        BaseInfoBar.error(
+            title=self.tr("任务已中止"),
+            content=message,
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=8000,
+            parent=self.window(),
+        )
 
     def _disable_setting(self, parent):
         for child in parent.children():

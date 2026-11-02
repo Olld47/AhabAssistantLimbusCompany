@@ -354,6 +354,9 @@ def Mirror_task():
         mir_times = 1
         log.info("启用了保存困牢奖励，将只执行一次困牢，并且不结算")
     finish_times = 0
+    consecutive_failures = 0
+    # 连续失败上限：一次镜牢没跑通时 mir_times 不会减少，没有这个上限会无限重试。
+    max_consecutive_failures = 3
     mediator.mirror_signal.emit(0, mir_times)
     cfg.normalize_and_sync_team_state(persist=False)
     # 开始执行镜牢任务
@@ -391,6 +394,7 @@ def Mirror_task():
         # 执行一次镜牢任务，根据执行结果进行处理
         mirror_result = onetime_mir_process(team_setting, team_num)
         if mirror_result:
+            consecutive_failures = 0
             cfg.rotate_team_queue()
             mir_times -= 1
             if cfg.hard_mirror and cfg.auto_hard_mirror:
@@ -406,6 +410,17 @@ def Mirror_task():
             log.info(msg)
             if finish_times == 1 and cfg.re_claim_rewards:  # 完成第一次镜牢后重新领取奖励
                 to_get_reward()
+        else:
+            # 一次镜牢没跑通：mir_times 不会减少，必须设上限，否则会一直重试。
+            consecutive_failures += 1
+            if consecutive_failures >= max_consecutive_failures:
+                log.error(
+                    f"连续 {consecutive_failures} 次镜牢未能完成，停止镜牢任务；请检查游戏画面与设置"
+                )
+                break
+            log.warning(
+                f"本次镜牢未完成（连续 {consecutive_failures}/{max_consecutive_failures} 次），重试"
+            )
 
     mediator.mirror_bar_kill_signal.emit()
     if cfg.re_claim_rewards and finish_times > 1:
