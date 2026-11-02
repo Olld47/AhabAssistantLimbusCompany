@@ -19,6 +19,23 @@ from .. import AbstractInput
 pyautogui.PAUSE = 0.03
 
 
+def _segment_durations(duration, count):
+    """把 ``duration`` 展开成每段的时长列表。
+
+    ``duration`` 既可以是单段时长（各段相同），也可以是与段数对应的序列
+    （用于「快速起步 + 减速 + 静止」这类需要逐段控制速度的手势）。
+    """
+    if count <= 0:
+        return []
+    if isinstance(duration, (list, tuple)):
+        steps = [max(0.01, float(step)) for step in duration]
+        if len(steps) >= count:
+            return steps[:count]
+        # 段数不足时用最后一段补齐，避免短列表导致少走几段。
+        return steps + [steps[-1] if steps else 0.05] * (count - len(steps))
+    return [max(0.01, float(duration))] * count
+
+
 class Input(AbstractInput):
     """基于 ``pyautogui`` 的前台输入，坐标以 1920×1080 画布为准。"""
 
@@ -59,8 +76,10 @@ class Input(AbstractInput):
         )
 
     def _drag(self, points, duration, settle, move_back):
+        """按住拖动；``duration`` 可以是单段时长，也可以是与各段一一对应的列表。"""
         g = self._geometry()
         mapped = [g.to_screen(*p) for p in points]
+        steps = _segment_durations(duration, len(mapped) - 1)
         previous = pyautogui.position()
 
         def validate():
@@ -69,11 +88,11 @@ class Input(AbstractInput):
 
         pyautogui.moveTo(*mapped[0])
         with held_mouse(pyautogui, validate):
-            for start, end in zip(mapped, mapped[1:]):
+            for (start, end), step in zip(zip(mapped, mapped[1:]), steps):
                 start_time = monotonic()
                 while True:
                     validate()
-                    progress = min(1, (monotonic() - start_time) / max(0.05, duration))
+                    progress = min(1, (monotonic() - start_time) / max(0.05, step))
                     pyautogui.moveTo(
                         start[0] + (end[0] - start[0]) * progress,
                         start[1] + (end[1] - start[1]) * progress,
@@ -102,9 +121,12 @@ class Input(AbstractInput):
         """滚动编队列表：末端减速并静止，消除松手惯性。
 
         列表要按行数精确定位队伍。匀速拖到底立刻松手时，Unity 会按松手速度
-        继续惯性滚动，多滚的行数不可控（实测滑一页会滚两页，导致选错队伍）。
-        Windows 版由 ``build_windows_scroll_swipe_plan`` 追加减速段和静止段；
-        这里用同样的收尾方式，让每次滑动的行数可重复。
+        继续惯性滚动，多滚的行数不可控。Windows 版由
+        ``build_windows_scroll_swipe_plan`` 追加减速段和静止段。
+
+        这里只取该路径的折点，仍交给 ``_drag`` 执行：后台模式的
+        ``BackgroundInput`` 覆盖了 ``_drag``（走定向事件），若在此直接操作
+        pyautogui 就会绕过后台投递，列表根本不动。
         """
         from module.automation.input_handlers.scroll_swipe import (
             WINDOWS_SCROLL_SETTLE_DURATION,
@@ -112,11 +134,12 @@ class Input(AbstractInput):
         )
 
         plan, settle_duration = build_windows_scroll_swipe_plan(x, y, dx, dy, duration)
-        # plan 的元素是（坐标, 到达该点前的耗时），首元素是起点。
-        points = [point for point, _ in plan]
-        if len(points) < 2:
+        if len(plan) < 2:
             return
-        self._drag(points, duration, settle_duration or WINDOWS_SCROLL_SETTLE_DURATION, move_back)
+        points = [point for point, _ in plan]
+        # plan 的第二个元素是「到达该点所需的耗时」，转成逐段时长交给 _drag。
+        steps = [max(0.01, step) for _, step in plan[1:]]
+        self._drag(points, steps, settle_duration or WINDOWS_SCROLL_SETTLE_DURATION, move_back)
 
     def mouse_drag_down(self, x, y, reverse=1, move_back=True):
         self.mouse_drag(x, y, 0.4, dy=300 * reverse, move_back=move_back)

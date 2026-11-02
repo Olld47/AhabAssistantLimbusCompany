@@ -158,6 +158,39 @@ def _reset_team_list_to_top(my_position, reset_distance, view_bbox):
     sleep(0.35)
 
 
+def _team_list_snapshot(view_bbox):
+    """截取编队列表区域，用于测量滚动前后位移。"""
+    while auto.take_screenshot() is None:
+        continue
+    return np.asarray(auto.screenshot.convert("L").crop(view_bbox), dtype=np.int16)
+
+
+def _team_list_shift(before, after, row_pixels=None):
+    """用垂直方向最佳对齐位移估计列表滚动了多少行。
+
+    列表整体上下移动，取使两帧差异最小的垂直偏移量即为位移像素。
+    """
+    if before is None or after is None or before.shape != after.shape:
+        return float("nan")
+    height = before.shape[0]
+    best_offset, best_score = 0, None
+    for offset in range(-height // 2, height // 2 + 1, 2):
+        if offset >= 0:
+            a = before[offset:, :]
+            b = after[: height - offset, :]
+        else:
+            a = before[: height + offset, :]
+            b = after[-offset:, :]
+        if a.size == 0:
+            continue
+        score = float(np.abs(a - b).mean())
+        if best_score is None or score < best_score:
+            best_offset, best_score = offset, score
+    if row_pixels:
+        return best_offset / row_pixels
+    return float(best_offset)
+
+
 def _ordered_team_location(num):
     page_count = (num - 1) // ORDERED_TEAM_PAGE_SIZE
     logical_page_start = page_count * ORDERED_TEAM_PAGE_SIZE + 1
@@ -244,8 +277,10 @@ def select_battle_team(num):
         first_position = [position[0], position[1] + 70 * scale]
         if cfg.select_team_by_order:
             team_range, team_order = _ordered_team_location(num)
+            view_bbox = _team_list_view_bbox(position, scale)
             for page_index in range(1, team_range + 1):
                 ordered_page_distance = _ordered_team_page_swipe_distance(page_index)
+                before = _team_list_snapshot(view_bbox)
                 auto.mouse_swipe_for_team_scroll(
                     first_position[0],
                     first_position[1] + 375 * scale,
@@ -253,6 +288,12 @@ def select_battle_team(num):
                     duration=0.3,
                 )
                 sleep(1)
+                after = _team_list_snapshot(view_bbox)
+                log.debug(
+                    f"选队翻页 {page_index}/{team_range}: 请求滑动 {ordered_page_distance} "
+                    f"单位({ordered_page_distance / ORDERED_TEAM_ROW_HEIGHT:.2f} 行), "
+                    f"列表位移 {_team_list_shift(before, after, ORDERED_TEAM_ROW_HEIGHT * scale):.2f} 行"
+                )
             auto.mouse_click(
                 first_position[0],
                 first_position[1]

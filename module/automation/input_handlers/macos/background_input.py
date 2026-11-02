@@ -115,19 +115,22 @@ class BackgroundInput(Input):
     def _drag(self, points, duration, settle, move_back):
         # Pure background drag. Reliable for battle links and lists; the
         # mirror map camera needs mouse_drag_map instead.
+        from .foreground_input import _segment_durations
+
         target = self._target()
         mapped = [target.geometry.to_screen(*_inside(p)) for p in points]
+        steps = _segment_durations(duration, len(mapped) - 1)
         point = mapped[0]
         self._mouse(Q.kCGEventLeftMouseDown, point, target)
         try:
             # Let Unity process the press before the first drag frame.
             wait_cancelled(0.05)
-            for start, end in zip(mapped, mapped[1:]):
+            for (start, end), step in zip(zip(mapped, mapped[1:]), steps):
                 started = monotonic()
                 while True:
                     if self.is_pause:
                         raise userStopError('后台拖动已中断并释放鼠标')
-                    progress = min(1, (monotonic() - started) / max(0.05, duration))
+                    progress = min(1, (monotonic() - started) / max(0.02, step))
                     point = (start[0] + (end[0] - start[0]) * progress,
                              start[1] + (end[1] - start[1]) * progress)
                     self._mouse(Q.kCGEventLeftMouseDragged, point, target)

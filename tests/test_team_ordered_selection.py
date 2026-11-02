@@ -57,3 +57,28 @@ def test_last_page_compensates_half_row_only_once():
         + team_formation.ORDERED_TEAM_BOTTOM_PAGE_OFFSET
         + row * 0
     )
+
+
+def test_team_scroll_goes_through_drag_so_background_mode_works():
+    """列表滚动必须经由 _drag，否则后台模式（定向事件）会失效。
+
+    曾经在这里直接调用 pyautogui：后台模式下游戏收不到物理鼠标拖动，
+    列表纹丝不动，目标 #6 最终选中 #1。
+    """
+    from module.automation.input_handlers.macos.background_input import BackgroundInput
+
+    driver = object.__new__(BackgroundInput)  # 不建立真实连接
+    recorded = {}
+    driver._drag = lambda points, duration, settle, move_back: recorded.update(
+        points=points, duration=duration, settle=settle
+    )
+
+    driver.mouse_swipe_for_team_scroll(100, 700, duration=0.3, dy=-300)
+
+    assert recorded, "鼠标滚动必须通过 _drag 执行（后台模式依赖它投递定向事件）"
+    points = recorded["points"]
+    assert points[-1][1] - points[0][1] == pytest.approx(-300)
+    # 逐段时长：起步快、末段慢，松手前再静止，避免惯性多滚。
+    assert isinstance(recorded["duration"], list)
+    assert recorded["duration"][-1] > recorded["duration"][0]
+    assert recorded["settle"] > 0
