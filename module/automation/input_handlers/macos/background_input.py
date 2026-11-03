@@ -143,6 +143,29 @@ class BackgroundInput(Input):
             self._mouse(Q.kCGEventLeftMouseUp, point, target, release=True)
             focus_guard.note(target.pid, '拖动')
 
+    def mouse_drag_down(self, x, y, reverse=1, move_back=True):
+        """后台模式下的列表滚动/翻页拖动：必须借用真实光标。
+
+        实测（CrossOver 后台模式，纽本关卡列表）：纯 PID 定向拖动后
+        滚动条位置完全不变（位移 0），改用借用光标后能正常滚动。
+        与 mouse_swipe_for_team_scroll、mouse_drag_map 同一类问题——
+        Unity 的滚动判定读的是系统真实光标位置。
+        """
+        from module.automation.input_handlers.scroll_swipe import (
+            WINDOWS_SCROLL_SETTLE_DURATION,
+            build_windows_scroll_swipe_plan,
+        )
+
+        dx, dy = 0, 300 * reverse
+        plan, settle_duration = build_windows_scroll_swipe_plan(x, y, dx, dy, 0.4)
+        if len(plan) < 2:
+            return
+        points = [point for point, _ in plan]
+        steps = [max(0.01, step) for _, step in plan[1:]]
+        self._drag_borrowing_cursor(
+            points, steps, settle_duration or WINDOWS_SCROLL_SETTLE_DURATION
+        )
+
     def mouse_swipe_for_team_scroll(self, x, y, duration=0.3, dx=0, dy=0, move_back=True):
         """后台模式滚动编队列表：必须借用真实光标。
 

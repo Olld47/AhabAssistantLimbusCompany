@@ -12,6 +12,27 @@
 - `tasks/base/script_task_scheme.py`：捕获镜牢的 `GameWindowLost`，重启后重新初始化输入和窗口，再进入镜牢流程。
 - `tasks/base/retry_monitor.py`：恢复期间让监控线程等待，由主流程接管新窗口。
 
+## CrossOver 滚动必须借用真实光标
+
+**结论：CrossOver（Wine）下所有「滚动/拖动列表」的输入都不能用纯 PID 定向事件，必须借用系统真实光标。** 这是 CrossOver 端的实现问题，不是任务逻辑的问题——同一份选关代码在 PlayCover（触摸注入）上正常，在 CrossOver 上失效。
+
+实测证据（纽本关卡列表，后台模式）：
+
+| 方式 | 结果 |
+| --- | --- |
+| 纯 PID 定向拖动（`CGEventPostToPid`） | 滚动条位置完全不变，位移 **0** |
+| 借用真实光标（`CGWarpMouseCursorPosition` + 定向事件） | 滚动条正常移动 |
+
+原因是 Unity 的滚动/拖拽判定读的是 `GetCursorPos` 返回的**系统真实光标位置**，而不是事件里携带的坐标。纯定向事件能让**点击**生效（点按不依赖光标位置），但滚动不行。
+
+因此后台模式（`BackgroundInput`）里这三类输入都走 `_drag_borrowing_cursor`：
+
+- `mouse_swipe_for_team_scroll`：编队列表翻页；
+- `mouse_drag_down`：通用列表滚动/翻页（纽本关卡列表用的就是它）；
+- `mouse_drag_map`：镜牢地图相机拖动。
+
+借用期间会等鼠标键盘空闲 1.5 秒，之后暂时接管光标、沿路径移动、松手后把光标放回原处。
+
 ## 恢复边界
 
 `GameWindowLost → recover() → 游戏进程退出检查 → 保存日志 → Steam 启动 → 等窗口/标题 → init_game() → finish() → 返回主界面 → Mirror.run()`。

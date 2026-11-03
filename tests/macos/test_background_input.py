@@ -153,3 +153,27 @@ def test_drag_ending_outside_the_game_is_clamped_not_rejected(sent):
     last = sent[-1][1]
     assert Q.CGEventGetType(last) == Q.kCGEventLeftMouseUp
     assert tuple(Q.CGEventGetLocation(last)) == tuple(TARGET.geometry.to_screen(1686, 1))
+
+
+def test_list_scroll_borrows_cursor_in_background_mode():
+    """CrossOver 下列表滚动必须借用真实光标。
+
+    实测：纯 PID 定向拖动后关卡列表的滚动条位置完全不变（位移 0）；
+    借用光标后才正常滚动。Unity 的滚动判定读 GetCursorPos，不看事件坐标。
+    同一个坑在编队列表、镜牢地图相机上都出现过。
+    """
+    from module.automation.input_handlers.macos.background_input import BackgroundInput
+
+    driver = object.__new__(BackgroundInput)
+    recorded = {}
+    driver._drag_borrowing_cursor = lambda points, duration, settle: recorded.update(
+        points=points, duration=duration, settle=settle
+    )
+
+    driver.mouse_drag_down(960, 400, reverse=-2)
+
+    assert recorded, "后台列表滚动必须借用光标，否则滚动条不动"
+    points = recorded["points"]
+    # reverse=-2 => dy = 300 * -2 = -600，整体向上拖
+    assert points[-1][1] - points[0][1] == pytest.approx(-600, abs=1)
+    assert recorded["settle"] > 0
