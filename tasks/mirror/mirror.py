@@ -822,6 +822,7 @@ class Mirror:
         star_card_size = (400 * scale, 480 * scale)
 
         loop_count = 30
+        bonus_applied = False
         auto.model = "clam"
         while True:
             # 自动截图
@@ -840,36 +841,51 @@ class Mirror:
             ):
                 continue
 
-            if auto.click_element(
-                "mirror/road_to_mir/dreaming_star/select_star_confirm_assets.png",
-                model="normal",
-            ):
+            # 确认按钮偶发只有 0.40/0.45 相似度（实测），单次未识别不代表没出现，
+            # 多试几次并放宽模型，避免因一次漏识别导致循环空转。
+            confirm_clicked = False
+            for confirm_attempt in range(3):
+                if auto.click_element(
+                    "mirror/road_to_mir/dreaming_star/select_star_confirm_assets.png",
+                    model="normal" if confirm_attempt else "clam",
+                ):
+                    confirm_clicked = True
+                    break
+                sleep(0.3)
+            if confirm_clicked:
                 break
 
-            bonus_num = len(self.opening_bonus)
-            level_count = self.opening_bonus.count(1)
-            level_plus_count = self.opening_bonus.count(2)
-            level_plusplus_count = self.opening_bonus.count(3)
-            if level_count == bonus_num:
-                auto.click_element("mirror/road_to_mir/select_all_stars_assets.png")
-            elif level_plus_count == bonus_num:
-                auto.click_element("mirror/road_to_mir/select_all_stars_assets.png")
-                auto.click_element("mirror/road_to_mir/dreaming_star/level_one_bonus_assets.png")
-            elif level_plusplus_count == bonus_num:
-                auto.click_element("mirror/road_to_mir/select_all_stars_assets.png")
-                auto.click_element("mirror/road_to_mir/dreaming_star/level_two_bonus_assets.png")
-            else:
-                for i in range(bonus_num):
-                    if self.opening_bonus[i] >= 1:
-                        auto.mouse_action_with_pos((starlights_X[i], starlights_Y[i]))
-                    if self.opening_bonus[i] == 2:
-                        auto.mouse_action_with_pos(
-                            (starlights_X[i] - 80 * scale, starlights_Y[i] + 320 * scale),
-                        )
-                    elif self.opening_bonus[i] == 3:
-                        auto.mouse_action_with_pos(
-                            (starlights_X[i] + 80 * scale, starlights_Y[i] + 320 * scale),
-                        )
+            # 星光选择只需执行一次。
+            # 卡片中心是 toggle：确认按钮偶发识别失败（实测相似度 0.40/0.45）
+            # 时不会 break，循环会再跑一轮并重复点击，把已选状态全部翻转掉，
+            # 最终表现为「配置全是基础等级却出现 ++」「该选的没选中」。
+            if not bonus_applied:
+                bonus_num = len(self.opening_bonus)
+                level_count = self.opening_bonus.count(1)
+                level_plus_count = self.opening_bonus.count(2)
+                level_plusplus_count = self.opening_bonus.count(3)
+                if level_count == bonus_num:
+                    auto.click_element("mirror/road_to_mir/select_all_stars_assets.png")
+                elif level_plus_count == bonus_num:
+                    auto.click_element("mirror/road_to_mir/select_all_stars_assets.png")
+                    auto.click_element("mirror/road_to_mir/dreaming_star/level_one_bonus_assets.png")
+                elif level_plusplus_count == bonus_num:
+                    auto.click_element("mirror/road_to_mir/select_all_stars_assets.png")
+                    auto.click_element("mirror/road_to_mir/dreaming_star/level_two_bonus_assets.png")
+                else:
+                    for i in range(bonus_num):
+                        if self.opening_bonus[i] >= 1:
+                            auto.mouse_action_with_pos((starlights_X[i], starlights_Y[i]))
+                        if self.opening_bonus[i] == 2:
+                            auto.mouse_action_with_pos(
+                                (starlights_X[i] - 80 * scale, starlights_Y[i] + 320 * scale),
+                            )
+                        elif self.opening_bonus[i] == 3:
+                            auto.mouse_action_with_pos(
+                                (starlights_X[i] + 80 * scale, starlights_Y[i] + 320 * scale),
+                            )
+                bonus_applied = True
+                log.debug(f"星光加成已按配置设置: {self.opening_bonus}")
 
             if auto.click_element("mirror/road_to_mir/dreaming_star/dreaming_star_enter_assets.png"):
                 sleep(0.5)
