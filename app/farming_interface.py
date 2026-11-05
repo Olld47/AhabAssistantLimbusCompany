@@ -511,9 +511,11 @@ class FarmingInterfaceLeft(QWidget):
         self.pause_resume_button.button.setFont(font)
 
     def __init_layout(self):
-        # macOS 的窗口尺寸/位置由 CrossOver 管理，「窗口设置」任务不适用。
-        if sys.platform != "darwin":
-            self.setting_options.addWidget(self.set_windows)
+        # 这一页除了「窗口尺寸/位置」，还承载截图间隔、鼠标间隔、鼠标按下时长、
+        # 异步输入等运行参数，因此在所有平台都要能打开。
+        # macOS 上只禁用与窗口管理相关的行（见 PageSetWindows 的平台判断），
+        # 不能整页隐藏，否则那些运行参数就没有入口了。
+        self.setting_options.addWidget(self.set_windows)
         self.setting_options.addWidget(self.daily_task)
         self.setting_options.addWidget(self.get_reward)
         self.setting_options.addWidget(self.buy_enkephalin)

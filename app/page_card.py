@@ -1,4 +1,5 @@
 import os
+import sys
 
 from markdown_it import MarkdownIt
 from mdit_py_plugins.anchors import anchors_plugin
@@ -156,8 +157,12 @@ class PageSetWindows(PageCard):
         )
 
     def __init_layout(self):
-        self.vbox_general.addWidget(self.win_size)
-        self.vbox_general.addWidget(self.win_position)
+        # macOS 的窗口尺寸/位置由 CrossOver 管理，这两项不适用；
+        # 但「结束后恢复窗口」与高级设置（截图间隔、鼠标间隔等）在所有平台都有效，
+        # 不能因为平台差异把整页内容一起藏掉。
+        if sys.platform != "darwin":
+            self.vbox_general.addWidget(self.win_size)
+            self.vbox_general.addWidget(self.win_position)
         self.vbox_general.addWidget(self.recovery_window)
 
         self.vbox_advanced.addWidget(self.screenshot_interval)
