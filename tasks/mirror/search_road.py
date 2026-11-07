@@ -14,10 +14,18 @@ from tasks.base.retry import retry
 
 
 def _macos_background() -> bool:
-    """macOS + CrossOver 后台模式：方向键偶尔会被游戏吞掉，需要点击兜底。"""
+    """macOS + CrossOver 后台模式：方向键偶尔会被游戏吞掉，需要点击兜底。
+
+    只适用于桌面版（CrossOver 里的 Steam 游戏）。PlayCover 等模拟器走触摸
+    输入，不能算作这里的「后台模式」：否则即使关掉 mirror_keyboard_navigation，
+    也会被这里的兜底逻辑拖进键盘寻路（见 enter_next_node 的条件）。
+    """
     if sys.platform != "darwin":
         return False
     try:
+        if cfg.get_value("simulator", False):
+            # 模拟器/PlayCover：按键投递与状态判定都和 CrossOver 不同，不套用该兜底。
+            return False
         return bool(cfg.get_value("background_click", False))
     except AttributeError:
         # 配置尚未初始化（例如离线脚本或单测）时按前台处理。
@@ -107,7 +115,10 @@ class MirrorMap:
         return choices[0][1]
 
     def enter_next_node(self, next_step):
-        if cfg.mirror_keyboard_navigation and auto.supports_key("up") or _macos_background():
+        # 键盘寻路必须先由用户（或设备能力）开启；macOS 后台的「点击兜底」
+        # 只在该分支内部生效，不能反过来把键盘寻路强制打开。
+        keyboard_enabled = cfg.mirror_keyboard_navigation and auto.supports_key("up")
+        if keyboard_enabled:
             log.debug(f"通过键盘按键寻路: {next_step}")
             if next_step == "U":
                 auto.key_press("up")

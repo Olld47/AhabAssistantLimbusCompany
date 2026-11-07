@@ -83,10 +83,12 @@ def test_classified_nodes_without_outgoing_arrow_are_not_walkable():
 
 
 def test_background_map_plans_full_route_once_and_uses_native_keys():
-    with patch.object(cfg, 'get_value', side_effect=lambda key, default=None: {'background_click': True, 'mirror_keyboard_navigation': False}.get(key, default)), \
+    with patch.object(cfg, 'get_value', side_effect=lambda key, default=None: {'background_click': True, 'mirror_keyboard_navigation': False, 'simulator': False, 'set_win_size': 1080}.get(key, default)), \
          patch.object(road, 'search_road_from_road_map', return_value=(['U', 'D'], ['bus', 'event', 'shop'])) as plan, \
          patch.object(road, 'search_road_visible', side_effect=AssertionError('route was planned')), \
          patch.object(road, 'visible_choices', return_value=[((False, 1), 'D', 'event'), ((False, 4), 'M', 'battle')]), \
+         patch.object(cfg, 'mirror_keyboard_navigation', True), \
+         patch.object(auto, 'supports_key', return_value=True), \
          patch.object(auto, 'key_press') as key, \
          patch.object(road, '_keyboard_enter_succeeded', return_value=True), \
          patch.object(road, 'sleep'):
@@ -225,7 +227,10 @@ def test_no_nodes_detected_falls_back_to_bus_arrows():
 
 
 def test_swallowed_key_falls_back_to_clicking_the_node():
-    with patch.object(cfg, 'get_value', side_effect=lambda key, default=None: {'background_click': True}.get(key, default)), \
+    # 该用例模拟 CrossOver 后台（非模拟器）下方向键被吞掉后的点击兜底。
+    with patch.object(cfg, 'get_value', side_effect=lambda key, default=None: {'background_click': True, 'simulator': False}.get(key, default)), \
+         patch.object(cfg, 'mirror_keyboard_navigation', True), \
+         patch.object(auto, 'supports_key', return_value=True), \
          patch.object(auto, 'key_press'), \
          patch.object(auto, 'mouse_click') as click, \
          patch.object(road, '_keyboard_enter_succeeded', side_effect=[False, False, True]), \
