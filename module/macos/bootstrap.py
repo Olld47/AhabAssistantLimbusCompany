@@ -26,12 +26,23 @@ def prepare_data_directory():
 
 
 def apply_mac_configuration(cfg):
-    # These are invariants of this platform, not preferences or migrated Windows state.
+    """应用 macOS 上真正不适用、或必须固定的配置。
+
+    这里只放「用户设了也没意义」的项。像 simulator 这类有实际支持路径的开关
+    （PlayCover 走触摸输入，代码里有完整分支）必须保留用户设置，
+    否则每次启动都会把用户的选择悄悄改回去。
+    """
     for key, value in {
-        'simulator': False, 'background_click': False,
         'set_win_size': 1080, 'set_windows': False, 'set_reduce_miscontact': False,
         'memory_protection': False, 'check_update': False, 'autostart': False,
         'after_completion_actions': [], 'after_completion_power_action': 'none',
         'image_resource_sync': False,
     }.items():
         cfg.unsaved_set_value(key, value)
+
+    # background_click 只在 CrossOver 桌面版（非模拟器）下才有意义：
+    # 模拟器输入方式由 simulator_type 决定，这里不覆盖用户的选择。
+    getter = getattr(cfg, 'get_value', None)
+    simulator_enabled = bool(getter('simulator', False)) if callable(getter) else False
+    if not simulator_enabled:
+        cfg.unsaved_set_value('background_click', False)
