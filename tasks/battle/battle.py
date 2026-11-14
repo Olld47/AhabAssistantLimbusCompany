@@ -743,13 +743,42 @@ class Battle:
             return valid_indexes - skill_3_indexes
         return skill_3_indexes
 
-    @staticmethod
-    def _chain_battle(prioritize_skill_3: bool = False) -> bool:
+    # 齿轮识别失败时的重试次数。右侧齿轮模板较大且含背景，画面切换/动画
+    # 期间匹配度容易跌到默认阈值之下，重试一次通常就能识别到。
+    GEAR_DETECT_RETRIES = 2
+
+    @classmethod
+    def _find_battle_gears(cls) -> tuple:
+        """识别左右齿轮，失败时重试。
+
+        返回 (gear_left, gear_right)；任一最终仍未识别到则为 (None, None)。
+
+        左右齿轮模板大小差异明显：左侧模板很小，匹配度稳定在高位；
+        右侧模板较大且含较多背景，画面处于切换/动画时会跌到默认阈值之下，
+        直接判定失败会让拉链战错误降级为 P+Enter。这里先重试一次
+        （重新截图 + 短暂等待），仍失败才交给调用方降级。
+        """
+        for attempt in range(cls.GEAR_DETECT_RETRIES):
+            gear_left = auto.find_element("battle/gear_left.png", take_screenshot=True)
+            gear_right = auto.find_element("battle/gear_right.png", take_screenshot=True)
+            if gear_left is not None and gear_right is not None:
+                if attempt:
+                    log.debug(f"齿轮识别重试第 {attempt + 1} 次成功")
+                return gear_left, gear_right
+            if attempt + 1 < cls.GEAR_DETECT_RETRIES:
+                log.debug(
+                    f"齿轮识别失败（left={gear_left}, right={gear_right}），重试中"
+                )
+                # 画面可能仍在切换，等一小会儿让动画过去再重新截图
+                sleep(0.6)
+        return None, None
+
+    @classmethod
+    def _chain_battle(cls, prioritize_skill_3: bool = False) -> bool:
         try:
             scale = cfg.set_win_size / 1440
 
-            gear_left = auto.find_element("battle/gear_left.png")
-            gear_right = auto.find_element("battle/gear_right.png")
+            gear_left, gear_right = cls._find_battle_gears()
             if gear_left is None or gear_right is None:
                 return False
 
