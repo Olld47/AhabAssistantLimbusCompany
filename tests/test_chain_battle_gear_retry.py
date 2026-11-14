@@ -105,8 +105,13 @@ def test_retries_when_gear_left_misses(patched):
     assert fake.left_calls == 2
 
 
-def test_chain_battle_returns_false_only_after_retries(patched):
-    """_chain_battle 在重试仍失败时才返回 False。"""
-    patched(SequenceAuto([LEFT_OK], [None, None]))
+def test_chain_battle_falls_back_internally_after_all_retries(patched):
+    """重试用尽后由 _chain_battle 自己 P+Enter，返回 True 阻止上层重复发键。"""
+    fake = patched(SequenceAuto([LEFT_OK], [None, None]))
+    fake.key_calls = []
+    fake.key_press = lambda k: fake.key_calls.append(k)
 
-    assert Battle._chain_battle(prioritize_skill_3=False) is False
+    result = Battle._chain_battle(prioritize_skill_3=False)
+
+    assert result is True, "内部已接管，不应让上层再发一次键"
+    assert fake.key_calls == ["p", "enter"]

@@ -77,27 +77,29 @@ def patched(monkeypatch):
     return install
 
 
-def test_chain_battle_fails_when_gear_right_not_found(patched):
-    """右侧齿轮识别不到时必须放弃拉链，不能盲拉。
+def test_chain_battle_falls_back_internally_when_gear_right_missing(patched):
+    """右侧齿轮最终识别不到时，在 _chain_battle 内部直接 P+Enter 开战。
 
-    实机降级案例中 gear_right 的匹配度都低于默认阈值，
-    find_element 返回 None。此时正确行为是 return False 走降级。
+    不返回 False 交给上层再发一次键：那样会变成"拉链失败→上层降级"的
+    二次操作，容易打乱已选好的技能状态。
     """
     fake = patched(gear_left=(400, 800), gear_right=None)
 
     result = Battle._chain_battle(prioritize_skill_3=False)
 
-    assert result is False, "齿轮缺失时应放弃拉链"
+    assert result is True, "内部已接管本回合，应返回 True 阻止上层重复发键"
     assert fake.drag_calls == [], "识别失败时不得发起拖拽"
+    assert fake.key_calls == ["p", "enter"], "应自行用 P+Enter 开战"
 
 
-def test_chain_battle_fails_when_gear_left_not_found(patched):
+def test_chain_battle_falls_back_internally_when_gear_left_missing(patched):
     fake = patched(gear_left=None, gear_right=(1300, 800))
 
     result = Battle._chain_battle(prioritize_skill_3=False)
 
-    assert result is False
+    assert result is True
     assert fake.drag_calls == []
+    assert fake.key_calls == ["p", "enter"]
 
 
 def test_chain_battle_succeeds_with_normal_gears(patched):

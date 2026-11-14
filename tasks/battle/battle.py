@@ -307,8 +307,10 @@ class Battle:
             use_prioritize_skill_3 = prioritize_skill_3 and not avoid_skill_3
             mode_name = "优先" if use_prioritize_skill_3 else "避免"
             msg = f"使用{mode_name}3技能模式开始战斗"
+            # _chain_battle 内部已负责"齿轮失败就 P+Enter 开战"，这里只在它
+            # 完全没能接管本回合（返回 False）时才补一次开战，避免重复发键。
             if self._chain_battle(prioritize_skill_3=use_prioritize_skill_3) is False:
-                msg = f"使用{mode_name}三技能的链接战失败，本场战斗改为P+Enter"
+                msg = f"使用{mode_name}三技能的链接战未能执行，改为P+Enter"
                 self._start_battle()
             sleep(2)
             if not auto.find_element("battle/pause_assets.png", take_screenshot=True):
@@ -775,12 +777,26 @@ class Battle:
 
     @classmethod
     def _chain_battle(cls, prioritize_skill_3: bool = False) -> bool:
+        """技能连线开始回合。
+
+        返回 True 表示本回合已由拉链接管（已发送回车）。
+        齿轮重试后仍识别不到、或技能槽数异常时，直接在这里按 P+Enter
+        开战并返回 True —— 调用方不应再重复发键。
+        """
         try:
             scale = cfg.set_win_size / 1440
 
             gear_left, gear_right = cls._find_battle_gears()
             if gear_left is None or gear_right is None:
-                return False
+                # 重试后仍认不到齿轮：直接在这里用 P+Enter 开战。
+                # 不再返回 False 让上层再发一次键——那会变成"拉链失败→上层降级"
+                # 的二次操作，容易把已经选好的技能状态打乱。
+                log.debug("齿轮重试后仍未识别到，改用 P+Enter 开战")
+                auto.key_press("p")
+                sleep(0.5)
+                auto.key_press("enter")
+                sleep(1)
+                return True
 
             gear_1 = [gear_left[0] + 94 * scale, gear_left[1] - 37 * scale]
             gear_2 = [gear_right[0] - 100 * scale, gear_right[1]]
@@ -789,7 +805,12 @@ class Battle:
 
             skill_nums = int((bbox[2] - bbox[0]) / (145 * scale))
             if skill_nums <= 0:
-                return False
+                log.debug(f"技能槽数异常（{skill_nums}），改用 P+Enter 开战")
+                auto.key_press("p")
+                sleep(0.5)
+                auto.key_press("enter")
+                sleep(1)
+                return True
 
             if skill_nums >= 10:
                 bbox = (bbox[0] + 50 * scale, bbox[1], bbox[2], bbox[3])
