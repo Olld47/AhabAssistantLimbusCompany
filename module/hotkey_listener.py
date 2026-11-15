@@ -22,9 +22,9 @@ _CAPS_LOCK_VK = 0x39
 
 
 def _install_caps_lock_guard() -> None:
-    """让 pynput 的 macOS 监听跳过 CapsLock 事件。
+    """让 pynput 的 macOS 监听完全不接收 CapsLock 事件。
 
-    崩溃现场（macOS crash report，SIGTRAP / EXC_BREAKPOINT）：
+    崩溃现场（macOS crash report，SIGTRAP / EXC_BREAKPOINT，崩在监听线程）：
 
         _dispatch_assert_queue_fail
         TSMGetInputSourceProperty
@@ -32,16 +32,19 @@ def _install_caps_lock_guard() -> None:
         TSMAdjustCapsLockPressAndHold
         CreateEventWithCGEvent
         +[NSEvent eventWithCGEvent:]
-        ... pynput 监听线程 ...
+        ... m_CGEventTapCallBack（pynput 的 CGEventTap 回调）...
 
-    CapsLock 抬起时，pynput 在**监听线程**里调 ``NSEvent.eventWithCGEvent_``，
-    而它内部要访问 Carbon TIS（输入源管理），该 API 要求在主队列执行；
-    在后台线程调用会撞上 dispatch_assert_queue 断言，直接以 SIGTRAP
-    杀掉整个进程——所以按一下 CapsLock 程序就闪退。
+    CapsLock 在 macOS 上产生的是 ``NSSystemDefined`` 类型事件。pynput 收到后
+    会在监听线程里调 ``NSEvent.eventWithCGEvent_``，它内部访问 Carbon TIS
+    （输入源管理），而该 API 要求在主队列执行；后台线程调用会撞上
+    dispatch_assert_queue 断言，直接以 SIGTRAP 杀掉整个进程。
 
-    这里包装 ``_handle_message``：识别到 CapsLock 的按键事件就原样丢弃，
-    不进入 pynput 那条会崩溃的分支。CapsLock 本来也不作为快捷键使用
-    （录入控件已把它排除），因此忽略它不影响任何功能。
+    这里直接把这个事件类型从监听的掩码里去掉：事件根本不会进入
+    ``_handle_message``，也就不存在"要不要拦"的问题。
+
+    代价：媒体键（音量/亮度）也走 NSSystemDefined，一并收不到。
+    本程序不需要媒体键，而 CapsLock 崩溃是致命的，这个取舍是值得的。
+    CapsLock 本身也不作为快捷键使用（录入控件已把它排除）。
     """
     if sys.platform != "darwin":
         return
@@ -55,21 +58,10 @@ def _install_caps_lock_guard() -> None:
     if getattr(listener_cls, "_caps_lock_guard_installed", False):
         return
 
-    original = listener_cls._handle_message
-
-    def _guarded_handle_message(self, proxy, event_type, event, refcon, injected):
-        try:
-            if _pynput_darwin.CGEventGetIntegerValueField(
-                event, _pynput_darwin.kCGKeyboardEventKeycode
-            ) == _CAPS_LOCK_VK:
-                return  # 丢弃 CapsLock，避免后台线程调用 Carbon TIS 导致 SIGTRAP
-        except Exception:
-            pass  # 取不到键码时按原逻辑处理
-        return original(self, proxy, event_type, event, refcon, injected)
-
-    listener_cls._handle_message = _guarded_handle_message
+    mask_bit = _pynput_darwin.CGEventMaskBit(_pynput_darwin.NSSystemDefined)
+    listener_cls._EVENTS = listener_cls._EVENTS & ~mask_bit
     listener_cls._caps_lock_guard_installed = True
-    log.debug("已安装 CapsLock 保护补丁（避免 macOS 上按 CapsLock 闪退）")
+    log.debug("已安装 CapsLock 保护补丁（监听不再接收 NSSystemDefined 事件）")
 
 
 _install_caps_lock_guard()

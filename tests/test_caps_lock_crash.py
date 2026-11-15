@@ -1,6 +1,6 @@
 """macOS 上按 CapsLock 不得让进程崩溃。
 
-崩溃现场（macOS crash report，SIGTRAP / EXC_BREAKPOINT，非主线程）：
+崩溃现场（macOS crash report，SIGTRAP / EXC_BREAKPOINT，崩在监听线程）：
 
     _dispatch_assert_queue_fail
     TSMGetInputSourceProperty
@@ -8,14 +8,18 @@
     TSMAdjustCapsLockPressAndHold
     CreateEventWithCGEvent
     +[NSEvent eventWithCGEvent:]
-    ... pynput 键盘监听线程 ...
+    ... m_CGEventTapCallBack（pynput 的 CGEventTap 回调）...
 
-CapsLock 抬起时 pynput 在监听线程里调用 NSEvent.eventWithCGEvent_，
-它内部访问 Carbon TIS（输入源管理），该 API 要求在主队列执行；
-后台线程调用会撞上 dispatch_assert_queue 断言，直接以 SIGTRAP 杀进程。
+CapsLock 在 macOS 上是 NSSystemDefined 类型事件。pynput 收到后在监听线程里
+调 NSEvent.eventWithCGEvent_，它内部访问 Carbon TIS（输入源管理），要求在主
+队列执行；后台线程调用会撞上 dispatch_assert_queue 断言，以 SIGTRAP 杀掉
+整个进程——所以按一下 CapsLock 就闪退，Python 层抓不到。
 
-修复：包装 pynput 的 Listener._handle_message，键码为 CapsLock(0x39)
-的事件直接丢弃，不进入那条会崩溃的分支。
+修复：把 NSSystemDefined 从监听的事件掩码里去掉，事件根本不会进入
+_handle_message。代价是媒体键一并失效，但本程序不需要媒体键。
+
+（早前尝试在 _handle_message 里按 keycode 过滤，实测无法阻止崩溃，
+因为崩溃发生在事件被分发到 Python 之前的系统层路径上。）
 """
 
 import sys
@@ -34,50 +38,29 @@ def test_caps_lock_guard_installed():
     from pynput.keyboard import _darwin
 
     assert getattr(_darwin.Listener, "_caps_lock_guard_installed", False) is True
-    assert _darwin.Listener._handle_message.__name__ == "_guarded_handle_message"
 
 
 @darwin_only
-def test_caps_lock_event_is_dropped(monkeypatch):
-    """CapsLock 事件必须被丢弃，不能进入 pynput 的解析路径。"""
-    from unittest.mock import MagicMock
-
+def test_system_defined_removed_from_event_mask():
+    """NSSystemDefined 必须从监听掩码里移除——这是 CapsLock 事件的来源。"""
     from pynput.keyboard import _darwin
 
-    guarded = _darwin.Listener._handle_message
-    fake_self = MagicMock()
-
-    monkeypatch.setattr(_darwin, "CGEventGetIntegerValueField", lambda *a: _CAPS_LOCK_VK)
-    # NSEvent 一旦被调用就说明走进了崩溃分支
-    monkeypatch.setattr(
-        _darwin, "NSEvent", MagicMock(side_effect=AssertionError("不应调用 NSEvent"))
+    bit = _darwin.CGEventMaskBit(_darwin.NSSystemDefined)
+    assert (_darwin.Listener._EVENTS & bit) == 0, (
+        "NSSystemDefined 仍在监听掩码中，CapsLock 事件会进入会崩溃的分支"
     )
 
-    guarded(fake_self, None, 999, MagicMock(), None, False)
-
-    assert fake_self._event_to_key.called is False, "CapsLock 不应进入按键解析"
-    assert fake_self.on_press.called is False
-
 
 @darwin_only
-def test_normal_key_still_handled(monkeypatch):
-    """普通按键必须照常处理，补丁不能误伤。"""
-    from unittest.mock import MagicMock
-
+def test_keyboard_events_still_monitored():
+    """普通按键与修饰键的监听不能受影响，否则快捷键全失效。"""
     from pynput.keyboard import _darwin
 
-    guarded = _darwin.Listener._handle_message
-    fake_self = MagicMock()
-    fake_self._event_to_key.return_value = "q"
-
-    monkeypatch.setattr(_darwin, "CGEventGetIntegerValueField", lambda *a: 0x0C)  # Q
-
-    guarded(fake_self, None, _darwin.kCGEventKeyDown, MagicMock(), None, False)
-
-    assert fake_self._event_to_key.called is True
-    assert fake_self.on_press.called is True
+    for name in ("kCGEventKeyDown", "kCGEventKeyUp", "kCGEventFlagsChanged"):
+        bit = _darwin.CGEventMaskBit(getattr(_darwin, name))
+        assert (_darwin.Listener._EVENTS & bit) != 0, f"{name} 被误移除，快捷键会失效"
 
 
 def test_caps_lock_vk_value():
-    """0x39 是 pynput 里 Key.caps_lock 对应的 vk，不能写错。"""
+    """0x39 是 pynput 里 Key.caps_lock 对应的 vk。"""
     assert _CAPS_LOCK_VK == 0x39

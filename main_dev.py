@@ -160,6 +160,17 @@ class AALCReloader:
             except AttributeError:
                 pass
 
+        # watcher 进程自己也会建一个 pynput 监听（Ctrl+R 手动重载）。
+        # macOS 上按 CapsLock 会让监听线程在 Carbon TIS 里撞上
+        # dispatch_assert_queue 断言、以 SIGTRAP 杀掉整个进程，
+        # 因此这里必须复用主程序那份 CapsLock 保护补丁。
+        try:
+            from module.hotkey_listener import _install_caps_lock_guard
+
+            _install_caps_lock_guard()
+        except Exception as exc:
+            log.debug(f"CapsLock 保护补丁安装失败（不影响运行）: {exc}")
+
         listener = keyboard.Listener(on_press=on_press)
         listener.daemon = True
         listener.start()
