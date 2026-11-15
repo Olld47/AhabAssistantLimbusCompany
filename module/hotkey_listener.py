@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+import sys
 import threading
 from collections.abc import Callable
 
@@ -15,6 +16,63 @@ _MODIFIER_KEYS = {
     keyboard.Key.ctrl,
     keyboard.Key.shift,
 }
+
+#: CapsLock 的 macOS 虚拟键码（pynput 里 Key.caps_lock 对应的 vk）。
+_CAPS_LOCK_VK = 0x39
+
+
+def _install_caps_lock_guard() -> None:
+    """让 pynput 的 macOS 监听跳过 CapsLock 事件。
+
+    崩溃现场（macOS crash report，SIGTRAP / EXC_BREAKPOINT）：
+
+        _dispatch_assert_queue_fail
+        TSMGetInputSourceProperty
+        ProcessCapsLockSequenceKeyUp
+        TSMAdjustCapsLockPressAndHold
+        CreateEventWithCGEvent
+        +[NSEvent eventWithCGEvent:]
+        ... pynput 监听线程 ...
+
+    CapsLock 抬起时，pynput 在**监听线程**里调 ``NSEvent.eventWithCGEvent_``，
+    而它内部要访问 Carbon TIS（输入源管理），该 API 要求在主队列执行；
+    在后台线程调用会撞上 dispatch_assert_queue 断言，直接以 SIGTRAP
+    杀掉整个进程——所以按一下 CapsLock 程序就闪退。
+
+    这里包装 ``_handle_message``：识别到 CapsLock 的按键事件就原样丢弃，
+    不进入 pynput 那条会崩溃的分支。CapsLock 本来也不作为快捷键使用
+    （录入控件已把它排除），因此忽略它不影响任何功能。
+    """
+    if sys.platform != "darwin":
+        return
+    try:
+        from pynput.keyboard import _darwin as _pynput_darwin
+    except Exception as exc:  # 平台模块结构变化时不影响主流程
+        log.debug(f"CapsLock 保护补丁跳过（无法导入 _darwin）: {exc}")
+        return
+
+    listener_cls = _pynput_darwin.Listener
+    if getattr(listener_cls, "_caps_lock_guard_installed", False):
+        return
+
+    original = listener_cls._handle_message
+
+    def _guarded_handle_message(self, proxy, event_type, event, refcon, injected):
+        try:
+            if _pynput_darwin.CGEventGetIntegerValueField(
+                event, _pynput_darwin.kCGKeyboardEventKeycode
+            ) == _CAPS_LOCK_VK:
+                return  # 丢弃 CapsLock，避免后台线程调用 Carbon TIS 导致 SIGTRAP
+        except Exception:
+            pass  # 取不到键码时按原逻辑处理
+        return original(self, proxy, event_type, event, refcon, injected)
+
+    listener_cls._handle_message = _guarded_handle_message
+    listener_cls._caps_lock_guard_installed = True
+    log.debug("已安装 CapsLock 保护补丁（避免 macOS 上按 CapsLock 闪退）")
+
+
+_install_caps_lock_guard()
 
 #: 快捷键映射提供者：重建监听时现取，保证调用方能读到最新的 cfg 值。
 HotkeyProvider = Callable[[], dict[str, Callable[[], None]]]
