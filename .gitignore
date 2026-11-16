@@ -39,6 +39,7 @@ __main_dev_temp__.py
 # 其他
 .worktrees
 tmp
+docs
 
 # MacOS
 .DS_Store
