@@ -56,7 +56,10 @@ def EXP_luxcavation(combat_count: int = 1):
             break
         if (
             auto.find_element("home/first_prompt_assets.png", model="clam")
-            and auto.find_element("home/back_assets.png", model="normal")
+            and (
+                auto.find_element("home/back_assets.png", model="normal")
+                or auto.find_element("home/back2_assets.png", model="normal")
+            )
             and not auto.find_element("luxcavation/exp_enter.png", threshold=0.85)
         ):
             # 优先点返回键；点不动再按 ESC（键盘可用时与 Windows 一致）
@@ -153,7 +156,10 @@ def thread_luxcavation(combat_count: int = 1):
             break
         if (
             auto.find_element("home/first_prompt_assets.png", model="clam")
-            and auto.find_element("home/back_assets.png", model="normal")
+            and (
+                auto.find_element("home/back_assets.png", model="normal")
+                or auto.find_element("home/back2_assets.png", model="normal")
+            )
             and not auto.find_element("luxcavation/thread_enter_up80_assets.png")
             and not auto.find_element("luxcavation/thread_consume.png")
         ):

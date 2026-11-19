@@ -95,7 +95,7 @@ def back_init_menu(*, allow_restart: bool = True):
             continue
 
         # 左上角有后退键
-        if auto.click_element("home/back_assets.png"):
+        if auto.click_element("home/back_assets.png") or auto.click_element("home/back2_assets.png"):
             continue
 
         # 通行证（赛季）界面：领取日常/周常奖励后常停留在此界面，键盘端靠 ESC 退出。
